@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -40,16 +41,9 @@ func main() {
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 
-	ip := net.ParseIP(*ipFlag)
-	if ip == nil {
-		var err error
-		if ip, err = detectLocalIP(); err != nil {
-			log.Fatalf("cannot detect the local IP, pass it with -ip: %v", err)
-		}
-	}
-	ip = ip.To4()
-	if ip == nil {
-		log.Fatal("-ip must be an IPv4 address")
+	ip, err := localIP(*ipFlag)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -74,20 +68,21 @@ func main() {
 		startTLSProbe(ctx)
 	}
 
-	pageURL := ""
+	var localURL, lanURL string
 	if *httpAddr != "" {
-		httpSrv, err := StartHTTP(*httpAddr, sink)
+		httpSrv, bound, err := StartHTTP(*httpAddr, sink)
 		if err != nil {
 			log.Fatalf("HTTP: %v (change the port with -http :8081)", err)
 		}
 		defer httpSrv.Close()
-		pageURL = "http://localhost" + portOf(*httpAddr)
+		localURL, lanURL = httpURLs(bound, ip)
 	}
 
-	printBanner(ip, *httpAddr, hasLocalPlayer(*player))
+	playerName := localPlayerName(*player)
+	fmt.Print(banner(ip, playerName, localURL, lanURL))
 
-	if pageURL != "" && (*openFlag == "always" || (*openFlag == "auto" && !hasLocalPlayer(*player))) {
-		openBrowser(pageURL)
+	if localURL != "" && (*openFlag == "always" || (*openFlag == "auto" && playerName == "")) {
+		openBrowser(localURL)
 	}
 
 	// Enter reopens the player if it was closed.
@@ -102,17 +97,31 @@ func main() {
 	log.Println("shutting down…")
 }
 
-func printBanner(ip net.IP, httpAddr string, localPlayer bool) {
-	view := "  The \"PS5\" window (mpv) opens: share it in Discord.\n"
-	if !localPlayer {
-		view = "  (mpv not found: playing in the browser)\n"
+// banner is the startup message. playerName is "" without a local player,
+// localURL is "" when the web page is disabled, lanURL is "" on loopback only.
+func banner(ip net.IP, playerName, localURL, lanURL string) string {
+	var view, keys string
+	switch {
+	case playerName != "":
+		view = fmt.Sprintf("  The \"PS5\" window (%s) opens: share it in Discord.\n", playerName)
+		keys = fmt.Sprintf("Enter = reopen the %s window · ", playerName)
+	case localURL != "":
+		view = "  No local player: the stream plays in the browser.\n"
+	default:
+		view = "  ⚠ No local player and no web page: nothing displays the stream.\n"
 	}
-	if httpAddr != "" {
-		p := portOf(httpAddr)
-		view += fmt.Sprintf("  Browser   : http://localhost%s  (or http://%s%s from another device)\n", p, ip, p)
-		view += fmt.Sprintf("  OBS / VLC : http://%s%s/live.flv\n", ip, p)
+	if localURL != "" {
+		view += "  Browser   : " + localURL
+		if lanURL != "" && lanURL != localURL {
+			view += fmt.Sprintf("  (or %s from another device)", lanURL)
+		}
+		streamURL := lanURL
+		if streamURL == "" {
+			streamURL = localURL
+		}
+		view += fmt.Sprintf("\n  OBS / VLC : %s/live.flv\n", streamURL)
 	}
-	fmt.Printf(`
+	return fmt.Sprintf(`
   ps5cast %s — ready
   ─────────────────────────────────────────────────────────
   On the PS5: Settings → Network → Settings → Set Up Internet
@@ -123,10 +132,42 @@ func printBanner(ip net.IP, httpAddr string, localPlayer bool) {
 
   Then start a Twitch broadcast from the PS5 (Create button).
 %s
-  Enter = reopen the mpv window · Ctrl+C = quit
+  %sCtrl+C = quit
   ─────────────────────────────────────────────────────────
 
-`, version, ip, view)
+`, version, ip, view, keys)
+}
+
+// localIP returns the IPv4 address the PS5 must use as DNS: the -ip flag when
+// it is set, otherwise the address of the interface that reaches the Internet.
+func localIP(flagValue string) (net.IP, error) {
+	if flagValue == "" {
+		ip, err := detectLocalIP()
+		if err != nil {
+			return nil, fmt.Errorf("cannot detect the local IP, pass it with -ip: %w", err)
+		}
+		return ip.To4(), nil
+	}
+	ip := net.ParseIP(flagValue).To4()
+	if ip == nil {
+		return nil, fmt.Errorf("-ip %q is not an IPv4 address", flagValue)
+	}
+	return ip, nil
+}
+
+// httpURLs returns the page URL for this PC and the one for other devices on
+// the LAN, which is empty when the server only listens on loopback.
+func httpURLs(bound *net.TCPAddr, lanIP net.IP) (local, lan string) {
+	port := strconv.Itoa(bound.Port)
+	switch {
+	case len(bound.IP) == 0 || bound.IP.IsUnspecified():
+		return "http://localhost:" + port, "http://" + net.JoinHostPort(lanIP.String(), port)
+	case bound.IP.IsLoopback():
+		return "http://" + net.JoinHostPort(bound.IP.String(), port), ""
+	default:
+		url := "http://" + net.JoinHostPort(bound.IP.String(), port)
+		return url, url
+	}
 }
 
 // detectLocalIP returns the IP of the interface used to reach the Internet.
@@ -173,14 +214,6 @@ func startTLSProbe(ctx context.Context) {
 			c.Close()
 		}
 	}()
-}
-
-func portOf(addr string) string {
-	_, p, err := net.SplitHostPort(addr)
-	if err != nil || p == "" {
-		return ""
-	}
-	return ":" + p
 }
 
 func openBrowser(url string) {

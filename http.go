@@ -17,7 +17,7 @@ var webFS embed.FS
 //   - /          player page (browser, fullscreen, to share on Discord)
 //   - /live.flv  the stream as HTTP-FLV (OBS "Media Source", VLC, mpv…)
 //   - /status    {"live":true|false}
-func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
+func StartHTTP(addr string, sink *Sink) (*http.Server, *net.TCPAddr, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServerFS(mustSub(webFS, "web")))
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
@@ -31,12 +31,12 @@ func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
 
 	l, err := net.Listen("tcp4", addr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go srv.Serve(l)
-	log.Printf("HTTP listening on %s", addr)
-	return srv, nil
+	log.Printf("HTTP listening on %s", l.Addr())
+	return srv, l.Addr().(*net.TCPAddr), nil
 }
 
 // flvWriteTimeout is how long a viewer may accept no data before it is disconnected.

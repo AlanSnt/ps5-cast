@@ -393,12 +393,16 @@ func playerCommand(mode string) (string, []string) {
 	return "", nil
 }
 
-func hasLocalPlayer(mode string) bool {
+// localPlayerName returns "mpv" or "ffplay", or "" when no local player will be used.
+func localPlayerName(mode string) string {
 	if mode == "none" {
-		return false
+		return ""
 	}
-	p, _ := playerCommand(mode)
-	return p != ""
+	path, _ := playerCommand(mode)
+	if path == "" {
+		return ""
+	}
+	return strings.TrimSuffix(filepath.Base(path), ".exe")
 }
 
 func findExe(name string) string {
