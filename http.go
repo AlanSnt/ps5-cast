@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -33,10 +34,27 @@ func StartHTTP(addr string, sink *Sink) (*http.Server, *net.TCPAddr, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: localHostsOnly(mux), ReadHeaderTimeout: 5 * time.Second}
 	go srv.Serve(l)
 	log.Printf("HTTP listening on %s", l.Addr())
 	return srv, l.Addr().(*net.TCPAddr), nil
+}
+
+// localHostsOnly refuses requests that were not addressed to localhost or to
+// an IP address. A DNS-rebinding page on another site can only reach this
+// server through its own domain name, so it never gets past this check.
+func localHostsOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			host = h
+		}
+		if !strings.EqualFold(host, "localhost") && net.ParseIP(strings.Trim(host, "[]")) == nil {
+			http.Error(w, "host not allowed: open this page with localhost or the IP address", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // flvWriteTimeout is how long a viewer may accept no data before it is disconnected.

@@ -87,6 +87,7 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 - **Linux, "permission denied" on port 53**: the `setcap` command from the setup was not run (run it again after every update of the binary).
 - **The PS5 broadcasts but nothing arrives**: look at the `dns …` lines in the console. If a new ingest domain shows up, add it with `-spoof "*.contribute.live-video.net,live*.twitch.tv,new.domain"`.
 - **"attempts a TLS connection on :443" message**: the PS5 is trying RTMPS (encrypted), which cannot be intercepted. The domain logged just before must not be redirected.
+- **"host not allowed" (403) on the web page or in OBS**: open it with `localhost` or the PC's IP address. A machine name such as `my-pc.local` is refused on purpose: it is what stops another website from reading the stream through DNS rebinding.
 - **Nothing at all**: check the PC's firewall (inbound ports 53 UDP/TCP and 1935 TCP; private profile on Windows).
 
 ## Build

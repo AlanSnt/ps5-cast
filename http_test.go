@@ -80,3 +80,39 @@ func TestStalledViewerIsReleased(t *testing.T) {
 		}
 	}
 }
+
+// A DNS-rebinding page reaches the server through its own domain name: only
+// requests addressed to localhost or to an IP address may be served.
+func TestOnlyLocalhostAndIPHostsAreServed(t *testing.T) {
+	srv, bound, err := StartHTTP("127.0.0.1:0", NewSink("none", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	port := fmt.Sprint(bound.Port)
+
+	for host, want := range map[string]int{
+		"127.0.0.1:" + port:    http.StatusOK,
+		"localhost:" + port:    http.StatusOK,
+		"LOCALHOST:" + port:    http.StatusOK,
+		"192.168.1.20:" + port: http.StatusOK,
+		"192.168.1.20":         http.StatusOK,
+		"evil.example:" + port: http.StatusForbidden,
+		"evil.example":         http.StatusForbidden,
+		"my-pc.local:" + port:  http.StatusForbidden,
+	} {
+		req, err := http.NewRequest(http.MethodGet, "http://"+bound.String()+"/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("Host %q: status = %d, want %d", host, resp.StatusCode, want)
+		}
+	}
+}
