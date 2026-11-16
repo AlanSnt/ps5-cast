@@ -36,10 +36,11 @@ Les binaires ne sont pas signés : Windows et macOS affichent un avertissement a
    - **Windows** : double-clique sur `ps5cast-windows-amd64.exe`. Si SmartScreen bloque : Informations complémentaires → Exécuter quand même. Quand Windows le demande, autorise l'accès sur le **réseau privé**.
    - **macOS** : dans un terminal, depuis le dossier du téléchargement :
      ```sh
-     tar -xzf ps5cast-darwin-*.tar.gz
+     tar -xzf ps5cast-darwin-arm64.tar.gz    # inutile si Safari a déjà extrait l'archive
      xattr -d com.apple.quarantine ps5cast   # lève le blocage Gatekeeper
      ./ps5cast
      ```
+     Sur un Mac Intel, remplace `arm64` par `amd64`.
      Si le pare-feu macOS le demande, autorise les connexions entrantes.
    - **Linux** : le port 53 est réservé à root, donne ce droit au binaire une fois :
      ```sh
@@ -78,7 +79,11 @@ Console : **Entrée** rouvre la fenêtre mpv, **Ctrl+C** quitte.
 
 - **« port 53 déjà utilisé »** : un autre service occupe le port. Coupe-le, ou lance ps5cast sur une autre machine.
   - Windows : le partage de connexion, Docker ou Hyper-V.
-  - Linux : souvent `systemd-resolved`. Mets `DNSStubListener=no` dans `/etc/systemd/resolved.conf`, puis `sudo systemctl restart systemd-resolved`.
+  - Linux : souvent `systemd-resolved`. Mets `DNSStubListener=no` dans `/etc/systemd/resolved.conf`, puis :
+    ```sh
+    sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf   # sans ça, le PC perd son propre DNS
+    sudo systemctl restart systemd-resolved
+    ```
 - **Linux, « permission denied » sur le port 53** : la commande `setcap` de l'installation n'a pas été lancée (à refaire après chaque mise à jour du binaire).
 - **La PS5 diffuse mais rien n'arrive** : regarde les lignes `dns …` dans la console. Si un nouveau domaine d'ingest apparaît, ajoute-le avec `-spoof "*.contribute.live-video.net,live*.twitch.tv,nouveau.domaine"`.
 - **Message « tente une connexion TLS sur :443 »** : la PS5 essaie RTMPS (chiffré), qu'on ne peut pas intercepter. Le domaine loggé juste avant ne doit pas être redirigé.
@@ -94,7 +99,7 @@ Pour une autre plateforme, ajoute `GOOS` et `GOARCH` (par exemple `GOOS=windows 
 
 ### Publier une release
 
-Pousse un tag `v*` : le workflow [`build.yml`](.github/workflows/build.yml) compile les quatre binaires et les attache à une release GitHub. Le tag devient la version affichée au démarrage.
+Pousse un tag `vX.Y.Z` : le workflow [`build.yml`](.github/workflows/build.yml) compile les quatre binaires et les attache à une release GitHub. Le tag devient la version affichée au démarrage.
 
 ```sh
 git tag v0.2.0

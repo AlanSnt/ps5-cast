@@ -60,7 +60,7 @@ func main() {
 
 	dnsSrv, err := StartDNS(ip, *upstream, splitPatterns(*spoofFlag), *verbose)
 	if err != nil {
-		log.Fatalf("DNS : %v\n→ le port 53 est peut-être déjà utilisé (partage de connexion Windows, Docker, Hyper-V…)", err)
+		log.Fatalf("DNS : %v\n→ le port 53 est déjà utilisé (partage de connexion Windows, Docker, Hyper-V, systemd-resolved…) ou interdit (Linux : setcap, voir le README)", err)
 	}
 	defer dnsSrv.Shutdown()
 
