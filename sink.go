@@ -159,7 +159,7 @@ func (s *Sink) Write(kind byte, ts uint32, data []byte) {
 		}
 	}
 	if s.player != nil && s.player.broken {
-		log.Println("window closed — press Enter to reopen it")
+		log.Println("player closed or stalled — press Enter to reopen it")
 		s.closeOutput(&s.player)
 	}
 	for c := range s.clients {
@@ -230,8 +230,8 @@ func (s *Sink) openPlayerLocked() {
 		log.Printf("player: %v", err)
 		return
 	}
-	go cmd.Wait() // avoids zombies; a write will fail once the window is closed
-	s.player = newOutput(stdin, stdin, cmd)
+	go cmd.Wait() // avoids zombies
+	s.player = newPlayerOutput(stdin, cmd)
 	log.Printf("window opened with %s", filepath.Base(name))
 }
 
@@ -241,12 +241,34 @@ func (s *Sink) closeOutput(p **output) {
 		return
 	}
 	o.w.Flush()
-	o.closer.Close() // EOF → the player exits on its own
+	o.closer.Close()
 	if o.cmd != nil && o.cmd.Process != nil {
 		proc := o.cmd.Process
 		time.AfterFunc(3*time.Second, func() { proc.Kill() }) // safety net
 	}
 	*p = nil
+}
+
+// newPlayerOutput feeds the player through a queue drained by its own
+// goroutine: a player that stops reading (paused, frozen) fills the queue and
+// is dropped, instead of blocking the sink and every other output with it.
+func newPlayerOutput(stdin io.WriteCloser, cmd *exec.Cmd) *output {
+	queue := newChanWriter(outputQueue)
+	go func() {
+		defer stdin.Close() // EOF → the player exits on its own
+		for {
+			select {
+			case b := <-queue.ch:
+				if _, err := stdin.Write(b); err != nil {
+					queue.Close() // window closed: the next sink write fails and drops the output
+					return
+				}
+			case <-queue.done:
+				return
+			}
+		}
+	}()
+	return newOutput(queue, queue, cmd)
 }
 
 func newOutput(w io.Writer, c io.Closer, cmd *exec.Cmd) *output {
@@ -283,9 +305,9 @@ func isKeyframe(d []byte) bool       { return len(d) > 0 && d[0]>>4 == 1 }
 // AAC FLV: byte 0 = soundFormat(10)<<4 | …, byte 1 = AACPacketType.
 func isAudioSeqHeader(d []byte) bool { return len(d) > 1 && d[0]>>4 == 10 && d[1] == 0 }
 
-// chanWriter is a non-blocking Write to a channel. If the HTTP client cannot
-// keep up, the channel fills, Write fails and the client is dropped: the PS5's
-// RTMP stream is never slowed down by a slow viewer.
+// chanWriter is a non-blocking Write to a channel. If the reader (HTTP client
+// or local player) cannot keep up, the channel fills, Write fails and the
+// output is dropped: the PS5's RTMP stream is never slowed down by a slow reader.
 type chanWriter struct {
 	ch   chan []byte
 	done chan struct{}
@@ -293,6 +315,10 @@ type chanWriter struct {
 }
 
 var errSlowClient = errors.New("client too slow")
+
+// outputQueue is how many video frames a reader may fall behind (~4 s at
+// 60 fps) before it is dropped.
+const outputQueue = 240
 
 func newChanWriter(depth int) *chanWriter {
 	return &chanWriter{ch: make(chan []byte, depth), done: make(chan struct{})}

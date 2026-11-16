@@ -45,7 +45,7 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
-	cw := newChanWriter(240) // ~4 s of headroom before dropping a slow client
+	cw := newChanWriter(outputQueue)
 	out, ok := sink.AddClient(cw, cw)
 	if !ok {
 		http.Error(w, "no stream in progress", http.StatusServiceUnavailable)
