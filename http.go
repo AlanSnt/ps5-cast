@@ -48,7 +48,7 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
-	cw := newChanWriter(outputQueue)
+	cw := newChanWriter(viewerQueue)
 	out, ok := sink.AddClient(cw, cw)
 	if !ok {
 		http.Error(w, "no stream in progress", http.StatusServiceUnavailable)
@@ -67,19 +67,25 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	log.Printf("+ HTTP viewer %s", client)
 	defer log.Printf("- HTTP viewer %s", client)
 
+	// Each write gets its own deadline: without one, a stalled viewer would
+	// block the write for minutes.
+	write := func(b []byte) error {
+		conn.SetWriteDeadline(time.Now().Add(flvWriteTimeout))
+		_, err := w.Write(b)
+		return err
+	}
+
 	for {
 		select {
 		case b := <-cw.ch:
-			// Without a deadline, a stalled viewer would block this write for minutes.
-			conn.SetWriteDeadline(time.Now().Add(flvWriteTimeout))
-			if _, err := w.Write(b); err != nil {
+			if write(b) != nil {
 				return
 			}
 			// Drain what is already queued before flushing (fewer syscalls).
 			for drained := false; !drained; {
 				select {
 				case b = <-cw.ch:
-					if _, err := w.Write(b); err != nil {
+					if write(b) != nil {
 						return
 					}
 				default:

@@ -80,6 +80,9 @@ func (s *Sink) BeginStream() bool {
 // createRecord never overwrites an earlier recording: when path already exists
 // (a previous run, or the PS5 reconnecting) it creates game-2.flv, game-3.flv…
 func createRecord(path string) (*os.File, error) {
+	if st, err := os.Stat(path); err == nil && st.IsDir() {
+		return nil, fmt.Errorf("%s is a directory, not a file", path)
+	}
 	ext := filepath.Ext(path)
 	stem := strings.TrimSuffix(path, ext)
 	name := path
@@ -97,7 +100,9 @@ func (s *Sink) EndStream() {
 	defer s.mu.Unlock()
 	s.active = false
 	s.closeOutput(&s.player)
-	s.closeOutput(&s.record)
+	if err := s.closeOutput(&s.record); err != nil {
+		log.Printf("recording may be incomplete: %v", err)
+	}
 	for c := range s.clients {
 		s.dropClientLocked(c)
 	}
@@ -237,11 +242,11 @@ func (s *Sink) openPlayerLocked() {
 	if s.player != nil || s.playerMode == "none" {
 		return
 	}
-	name, args := playerCommand(s.playerMode)
-	if name == "" {
+	name, path, args := playerCommand(s.playerMode)
+	if path == "" {
 		return // no local player: the web page does the job
 	}
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(path, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -254,28 +259,28 @@ func (s *Sink) openPlayerLocked() {
 	}
 	go cmd.Wait() // avoids zombies
 	s.player = newPlayerOutput(stdin, cmd)
-	log.Printf("window opened with %s", filepath.Base(name))
+	log.Printf("window opened with %s", name)
 }
 
-func (s *Sink) closeOutput(p **output) {
+func (s *Sink) closeOutput(p **output) error {
 	o := *p
 	if o == nil {
-		return
+		return nil
 	}
-	o.w.Flush()
-	o.closer.Close()
+	err := errors.Join(o.w.Flush(), o.closer.Close())
 	if o.cmd != nil && o.cmd.Process != nil {
 		proc := o.cmd.Process
 		time.AfterFunc(3*time.Second, func() { proc.Kill() }) // safety net
 	}
 	*p = nil
+	return err
 }
 
 // newPlayerOutput feeds the player through a queue drained by its own
 // goroutine: a player that stops reading (paused, frozen) fills the queue and
 // is dropped, instead of blocking the sink and every other output with it.
 func newPlayerOutput(stdin io.WriteCloser, cmd *exec.Cmd) *output {
-	queue := newChanWriter(outputQueue)
+	queue := newChanWriter(playerQueue)
 	go func() {
 		defer stdin.Close() // EOF → the player exits on its own
 		for {
@@ -338,9 +343,11 @@ type chanWriter struct {
 
 var errSlowClient = errors.New("client too slow")
 
-// outputQueue is how many video frames a reader may fall behind (~4 s at
-// 60 fps) before it is dropped.
-const outputQueue = 240
+// How many video frames a reader may fall behind before it is dropped.
+const (
+	viewerQueue = 240 // ~4 s at 60 fps
+	playerQueue = 600 // ~10 s at 60 fps: a cold-starting player needs time to open
+)
 
 func newChanWriter(depth int) *chanWriter {
 	return &chanWriter{ch: make(chan []byte, depth), done: make(chan struct{})}
@@ -367,8 +374,9 @@ func (c *chanWriter) Close() error {
 	return nil
 }
 
-// playerCommand looks for mpv then ffplay, next to the executable first.
-func playerCommand(mode string) (string, []string) {
+// playerCommand looks for mpv then ffplay, next to the executable first. It
+// returns the player's name, the path of its executable and its arguments.
+func playerCommand(mode string) (name, path string, args []string) {
 	mpvArgs := []string{
 		"--profile=low-latency", "--no-cache", "--untimed",
 		"--demuxer-lavf-format=flv", "--demuxer-lavf-probesize=32768",
@@ -387,10 +395,10 @@ func playerCommand(mode string) (string, []string) {
 	}
 	for _, name := range order {
 		if p := findExe(name); p != "" {
-			return p, candidates[name]
+			return name, p, candidates[name]
 		}
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // localPlayerName returns "mpv" or "ffplay", or "" when no local player will be used.
@@ -398,11 +406,8 @@ func localPlayerName(mode string) string {
 	if mode == "none" {
 		return ""
 	}
-	path, _ := playerCommand(mode)
-	if path == "" {
-		return ""
-	}
-	return strings.TrimSuffix(filepath.Base(path), ".exe")
+	name, _, _ := playerCommand(mode)
+	return name
 }
 
 func findExe(name string) string {

@@ -37,7 +37,7 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	written := make(chan struct{})
 	go func() {
 		defer close(written)
-		for ts := uint32(0); ts < 4*outputQueue; ts++ {
+		for ts := uint32(0); ts < 2*playerQueue; ts++ {
 			sink.Write(tagVideo, ts, keyframe)
 		}
 	}()
@@ -108,5 +108,52 @@ func TestFailedRecordingIsReportedAndClosed(t *testing.T) {
 	}
 	if !strings.Contains(logged.String(), "no space left on device") {
 		t.Errorf("log = %q, want the write error reported", logged.String())
+	}
+}
+
+func TestRecordingToADirectoryIsAnError(t *testing.T) {
+	dir := t.TempDir()
+
+	if f, err := createRecord(dir); err == nil {
+		f.Close()
+		t.Errorf("createRecord(directory) created %q, want an error", f.Name())
+	}
+}
+
+// lateFailingFile accepts writes but fails on Close, like a network share that
+// reports a deferred write error.
+type lateFailingFile struct{}
+
+func (lateFailingFile) Write(p []byte) (int, error) { return len(p), nil }
+func (lateFailingFile) Close() error                { return errors.New("deferred write failed") }
+
+func TestRecordingThatFailsOnCloseIsReported(t *testing.T) {
+	sink := liveSink(t)
+	sink.mu.Lock()
+	sink.record = newOutput(lateFailingFile{}, lateFailingFile{}, nil)
+	sink.mu.Unlock()
+
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	sink.EndStream()
+
+	if !strings.Contains(logged.String(), "deferred write failed") {
+		t.Errorf("log = %q, want the close error reported", logged.String())
+	}
+}
+
+func TestLocalPlayerNameIsTheLogicalName(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ffplay"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	for mode, want := range map[string]string{"auto": "ffplay", "ffplay": "ffplay", "mpv": "", "none": ""} {
+		if got := localPlayerName(mode); got != want {
+			t.Errorf("localPlayerName(%q) = %q, want %q", mode, got, want)
+		}
 	}
 }
