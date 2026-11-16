@@ -48,12 +48,13 @@ Requires Windows 10, macOS 13 or a 64-bit Linux, or later. The binaries are not 
      sudo setcap cap_net_bind_service=+ep ./ps5cast
      ./ps5cast
      ```
-3. On the PS5: Settings → Network → Settings → Set Up Internet Connection → your connection → Advanced Settings
+3. On the PS5, link your Twitch account first: Settings → Users and Accounts → Link with Other Services → Twitch. Do it **before** changing the DNS: the account must already be signed in when the PS5 starts using the PC as its DNS.
+4. On the PS5: Settings → Network → Settings → Set Up Internet Connection → your connection → Advanced Settings
    - DNS Settings: **Manual**
    - Primary DNS: the IP printed by ps5cast
    - Secondary DNS: `1.1.1.1` (Internet keeps working when the PC is off)
-4. The PS5 needs a linked Twitch account. Start a Twitch broadcast with the Create button.
-5. The page (or the mpv window) shows the game. In Discord: Share Your Screen → the browser window or "PS5".
+5. Start a Twitch broadcast with the Create button.
+6. The page (or the mpv window) shows the game. In Discord: Share Your Screen → the browser window or "PS5".
 
 Web page: click = enable sound (the browser starts muted), **f** fullscreen, **m** mute, **s** latency stats.
 Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
