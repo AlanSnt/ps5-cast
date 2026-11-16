@@ -22,7 +22,8 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+// version est remplacée par le tag git lors d'un build de release (-X main.version).
+var version = "dev"
 
 func main() {
 	var (

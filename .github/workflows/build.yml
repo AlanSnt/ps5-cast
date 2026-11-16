@@ -1,0 +1,48 @@
+name: build
+
+# Pull requests only compile; a v* tag also publishes the binaries as a release.
+on:
+  pull_request:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: go vet ./...
+
+      - name: Build all targets
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir dist
+          ldflags="-s -w -X main.version=${GITHUB_REF_NAME#v}"
+          for target in windows/amd64 darwin/arm64 darwin/amd64 linux/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}"
+            name="ps5cast-$GOOS-$GOARCH"
+            if [ "$GOOS" = windows ]; then
+              go build -trimpath -ldflags="$ldflags" -o "dist/$name.exe" .
+            else
+              # tar keeps the executable bit, which a raw download would lose
+              go build -trimpath -ldflags="$ldflags" -o ps5cast .
+              tar -czf "dist/$name.tar.gz" ps5cast
+            fi
+          done
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
