@@ -33,7 +33,7 @@ func main() {
 		spoofFlag = flag.String("spoof", "", "exact domain patterns redirected to this PC, comma-separated (default: "+strings.Join(defaultSpoof, ",")+" plus the ingest servers Twitch publishes)")
 		player    = flag.String("player", "auto", "player: auto | mpv | ffplay | none")
 		record    = flag.String("record", "", "also record the stream to this .flv file (never overwrites: adds -2, -3…)")
-		verbose   = flag.Bool("v", false, "log every DNS query")
+		verbose   = flag.Bool("v", false, "log every DNS query, and why the check for a newer version failed")
 		probe443  = flag.Bool("probe443", true, "listen on :443 to detect an RTMPS attempt (cannot be intercepted)")
 		httpAddr  = flag.String("http", ":8080", "address of the web page and HTTP-FLV stream (empty = disabled)")
 		openFlag  = flag.String("open", "auto", "open the page in the browser: auto (if no mpv/ffplay) | always | never")
@@ -80,6 +80,7 @@ func main() {
 
 	playerName := localPlayerName(*player)
 	fmt.Print(banner(ip, playerName, localURL, lanURL))
+	go announceNewerVersion(ctx, version, *verbose)
 
 	if localURL != "" && (*openFlag == "always" || (*openFlag == "auto" && playerName == "")) {
 		openBrowser(localURL)

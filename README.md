@@ -30,6 +30,8 @@ Pick the file for your system from the [latest release](https://github.com/AlanS
 
 Requires Windows 10, macOS 13 or a 64-bit Linux, or later. The binaries are not signed: Windows and macOS show a warning on first launch.
 
+At startup, a released binary asks GitHub for the latest stable release and prints a link in the console when a newer one exists. It downloads nothing by itself.
+
 ## Setup
 
 1. *(Optional)* Install mpv: `winget install mpv` (Windows), `brew install mpv` (macOS) or your distribution's `mpv` package (Linux). You can also drop the mpv binary next to ps5cast. Without mpv, the web page opens on its own.
@@ -75,7 +77,7 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 | `-open` | `auto` | open the page at startup: `auto` (if no mpv), `always`, `never` |
 | `-record` | — | also record the stream to a `.flv` file; an existing file is never overwritten (`game-2.flv`, `game-3.flv`…) |
 | `-probe443` | `true` | listen on port 443 to detect an RTMPS attempt; pass `-probe443=false` if another program needs that port |
-| `-v` | off | log every DNS query |
+| `-v` | off | log every DNS query, and why the check for a newer version failed |
 
 ## Troubleshooting
 

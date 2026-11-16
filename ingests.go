@@ -2,16 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 )
 
 // twitchIngestsURL is the public list of Twitch ingest servers, the one the
@@ -48,23 +43,8 @@ func spoofPatterns(ctx context.Context, spoofFlag, ingestsURL string) []string {
 
 // fetchIngestHosts returns the host of every RTMP ingest in the list.
 func fetchIngestHosts(ctx context.Context, ingestsURL string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ingestsURL, nil)
+	list, err := getJSON[ingestList](ctx, ingestsURL)
 	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %s", resp.Status)
-	}
-
-	var list ingestList
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&list); err != nil {
 		return nil, err
 	}
 	var hosts []string
