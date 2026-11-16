@@ -56,7 +56,6 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	h := w.Header()
 	h.Set("Content-Type", "video/x-flv")
 	h.Set("Cache-Control", "no-store")
-	h.Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 

@@ -21,6 +21,8 @@ jobs:
 
       - run: go vet ./...
 
+      - run: go test -race ./...
+
       - name: Build all targets
         env:
           CGO_ENABLED: "0"
