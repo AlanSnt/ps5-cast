@@ -176,3 +176,16 @@ func TestConnectionClosedBeforePublishingIsReportedWithItsSteps(t *testing.T) {
 		}
 	}
 }
+
+// A client that repeats itself must not grow the trace without bound, and the
+// console must show that the trace was cut.
+func TestStepTraceIsCappedAndSaysSo(t *testing.T) {
+	h := &rtmpHandler{}
+	for range maxSteps + 5 {
+		h.step("releaseStream")
+	}
+	if len(h.steps) != maxSteps || h.steps[maxSteps-1] != moreSteps {
+		t.Errorf("trace has %d steps ending with %q, want %d ending with %q",
+			len(h.steps), h.steps[len(h.steps)-1], maxSteps, moreSteps)
+	}
+}
