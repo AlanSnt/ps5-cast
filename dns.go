@@ -11,8 +11,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Domaines d'ingest Twitch. ingest.twitch.tv n'est volontairement PAS redirigé :
-// c'est un endpoint HTTPS de découverte, l'intercepter casserait le flux.
+// Twitch ingest domains. ingest.twitch.tv is deliberately NOT redirected:
+// it is an HTTPS discovery endpoint, intercepting it would break the stream.
 var defaultSpoof = []string{
 	"*.contribute.live-video.net",
 	"live*.twitch.tv",
@@ -56,12 +56,12 @@ func StartDNS(ip net.IP, upstream string, patterns []string, verbose bool) (*dns
 		s.udp.Shutdown()
 		return nil, err
 	}
-	log.Printf("DNS en écoute sur :53 (relais → %s, redirige %v)", upstream, patterns)
+	log.Printf("DNS listening on :53 (relay → %s, redirecting %v)", upstream, patterns)
 	return s, nil
 }
 
-// listenAndServe démarre le serveur et attend qu'il soit réellement à l'écoute,
-// pour remonter tout de suite une erreur de bind (port 53 occupé).
+// listenAndServe starts the server and waits until it is really listening,
+// so a bind error (port 53 in use) is reported right away.
 func listenAndServe(s *dns.Server) error {
 	started := make(chan struct{})
 	errc := make(chan error, 1)
@@ -107,9 +107,9 @@ func (h *dnsHandler) answerSpoofed(w dns.ResponseWriter, req *dns.Msg, q dns.Que
 			Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 30},
 			A:   h.ip,
 		}}
-		log.Printf("→ %s redirigé vers ce PC (%s)", strings.TrimSuffix(q.Name, "."), h.ip)
+		log.Printf("→ %s redirected to this PC (%s)", strings.TrimSuffix(q.Name, "."), h.ip)
 	default:
-		// AAAA & co : réponse vide pour forcer l'IPv4.
+		// AAAA and others: empty answer to force IPv4.
 	}
 	w.WriteMsg(resp)
 }
@@ -133,8 +133,8 @@ func (h *dnsHandler) forward(w dns.ResponseWriter, req *dns.Msg) {
 	w.WriteMsg(resp)
 }
 
-// logQuery affiche chaque domaine une seule fois (tous si -v) : pratique pour
-// repérer un nouveau domaine d'ingest sans noyer la console.
+// logQuery logs each domain only once (all of them with -v): handy to spot a
+// new ingest domain without flooding the console.
 func (h *dnsHandler) logQuery(w dns.ResponseWriter, name string) {
 	name = strings.TrimSuffix(name, ".")
 	if !h.verbose {

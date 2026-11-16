@@ -21,10 +21,10 @@ const (
 
 var flvHeader = []byte{'F', 'L', 'V', 1, 0x05, 0, 0, 0, 9, 0, 0, 0, 0}
 
-// Sink reçoit les tags FLV du flux RTMP et les distribue à plusieurs sorties :
-// le lecteur local, un fichier, et les clients HTTP-FLV (navigateur, OBS, VLC).
-// Il garde en cache les métadonnées et les "sequence headers" H.264/AAC pour
-// brancher une sortie en cours de flux : elle démarre sur la prochaine image clé.
+// Sink receives the FLV tags of the RTMP stream and fans them out to several
+// outputs: the local player, a file, and the HTTP-FLV clients (browser, OBS, VLC).
+// It caches the metadata and the H.264/AAC sequence headers so an output can
+// join mid-stream: it starts on the next keyframe.
 type Sink struct {
 	playerMode string
 	recordPath string
@@ -40,13 +40,13 @@ type Sink struct {
 	clients map[*output]struct{}
 }
 
-// output = une destination FLV.
+// output is one FLV destination.
 type output struct {
 	w      *bufio.Writer
 	closer io.Closer
 	cmd    *exec.Cmd
-	synced bool   // a reçu une image clé
-	base   uint32 // timestamp de la 1re image clé → rebase à 0
+	synced bool   // received a keyframe
+	base   uint32 // timestamp of the first keyframe → rebased to 0
 	broken bool
 }
 
@@ -65,10 +65,10 @@ func (s *Sink) BeginStream() bool {
 	s.openPlayerLocked()
 	if s.recordPath != "" && s.record == nil {
 		if f, err := os.Create(s.recordPath); err != nil {
-			log.Printf("enregistrement impossible : %v", err)
+			log.Printf("cannot record: %v", err)
 		} else {
 			s.record = newOutput(f, f, nil)
-			log.Printf("enregistrement → %s", s.recordPath)
+			log.Printf("recording → %s", s.recordPath)
 		}
 	}
 	return true
@@ -91,12 +91,12 @@ func (s *Sink) Active() bool {
 	return s.active
 }
 
-// Reopen relance le lecteur si le flux tourne et que la fenêtre a été fermée.
+// Reopen restarts the player if the stream is live and the window was closed.
 func (s *Sink) Reopen() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.active {
-		log.Println("aucun flux en cours")
+		log.Println("no stream in progress")
 		return
 	}
 	if s.player != nil && !s.player.broken {
@@ -111,7 +111,7 @@ func (s *Sink) Reopen() {
 
 func (s *Sink) Close() { s.EndStream() }
 
-// AddClient branche une sortie supplémentaire (client HTTP) sur le flux en cours.
+// AddClient attaches an extra output (HTTP client) to the current stream.
 func (s *Sink) AddClient(w io.Writer, c io.Closer) (*output, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,13 +159,13 @@ func (s *Sink) Write(kind byte, ts uint32, data []byte) {
 		}
 	}
 	if s.player != nil && s.player.broken {
-		log.Println("fenêtre fermée — appuie sur Entrée pour la rouvrir")
+		log.Println("window closed — press Enter to reopen it")
 		s.closeOutput(&s.player)
 	}
 	for c := range s.clients {
 		s.writeTo(c, kind, ts, data)
 		if c.broken {
-			s.dropClientLocked(c) // client trop lent ou parti : on le coupe
+			s.dropClientLocked(c) // client too slow or gone: drop it
 		}
 	}
 }
@@ -177,7 +177,7 @@ func (s *Sink) writeTo(o *output, kind byte, ts uint32, data []byte) {
 
 	if !o.synced && !isConfig {
 		if kind != tagVideo || !isKeyframe(data) {
-			return // on attend une image clé pour démarrer net
+			return // wait for a keyframe to start cleanly
 		}
 		o.synced, o.base = true, ts
 	}
@@ -190,13 +190,13 @@ func (s *Sink) writeTo(o *output, kind byte, ts uint32, data []byte) {
 		return
 	}
 	if kind == tagVideo {
-		if err := o.w.Flush(); err != nil { // 1 flush par image : latence minimale
+		if err := o.w.Flush(); err != nil { // one flush per frame: minimal latency
 			o.broken = true
 		}
 	}
 }
 
-// primeLocked envoie à une sortie fraîchement branchée ce qu'il faut pour décoder.
+// primeLocked sends a freshly attached output what it needs to decode.
 func (s *Sink) primeLocked(o *output) {
 	for _, t := range []struct {
 		kind byte
@@ -217,22 +217,22 @@ func (s *Sink) openPlayerLocked() {
 	}
 	name, args := playerCommand(s.playerMode)
 	if name == "" {
-		return // pas de lecteur local : la page web fait l'affaire
+		return // no local player: the web page does the job
 	}
 	cmd := exec.Command(name, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Printf("lecteur : %v", err)
+		log.Printf("player: %v", err)
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		log.Printf("lecteur : %v", err)
+		log.Printf("player: %v", err)
 		return
 	}
-	go cmd.Wait() // évite les zombies ; une écriture échouera si la fenêtre est fermée
+	go cmd.Wait() // avoids zombies; a write will fail once the window is closed
 	s.player = newOutput(stdin, stdin, cmd)
-	log.Printf("fenêtre ouverte avec %s", filepath.Base(name))
+	log.Printf("window opened with %s", filepath.Base(name))
 }
 
 func (s *Sink) closeOutput(p **output) {
@@ -241,10 +241,10 @@ func (s *Sink) closeOutput(p **output) {
 		return
 	}
 	o.w.Flush()
-	o.closer.Close() // EOF → le lecteur se ferme tout seul
+	o.closer.Close() // EOF → the player exits on its own
 	if o.cmd != nil && o.cmd.Process != nil {
 		proc := o.cmd.Process
-		time.AfterFunc(3*time.Second, func() { proc.Kill() }) // filet de sécurité
+		time.AfterFunc(3*time.Second, func() { proc.Kill() }) // safety net
 	}
 	*p = nil
 }
@@ -257,7 +257,7 @@ func newOutput(w io.Writer, c io.Closer, cmd *exec.Cmd) *output {
 	return o
 }
 
-// writeTag écrit un tag FLV : en-tête 11 octets + données + taille précédente.
+// writeTag writes one FLV tag: 11-byte header + data + previous tag size.
 func writeTag(w *bufio.Writer, kind byte, ts uint32, data []byte) error {
 	var hdr [11]byte
 	n := len(data)
@@ -276,23 +276,23 @@ func writeTag(w *bufio.Writer, kind byte, ts uint32, data []byte) error {
 	return err
 }
 
-// H.264 FLV : octet 0 = frameType<<4 | codecID(7), octet 1 = AVCPacketType.
+// H.264 FLV: byte 0 = frameType<<4 | codecID(7), byte 1 = AVCPacketType.
 func isVideoSeqHeader(d []byte) bool { return len(d) > 1 && d[0]&0x0f == 7 && d[1] == 0 }
 func isKeyframe(d []byte) bool       { return len(d) > 0 && d[0]>>4 == 1 }
 
-// AAC FLV : octet 0 = soundFormat(10)<<4 | …, octet 1 = AACPacketType.
+// AAC FLV: byte 0 = soundFormat(10)<<4 | …, byte 1 = AACPacketType.
 func isAudioSeqHeader(d []byte) bool { return len(d) > 1 && d[0]>>4 == 10 && d[1] == 0 }
 
-// chanWriter : Write non bloquant vers un canal. Si le client HTTP ne suit pas,
-// le canal se remplit, Write échoue et le client est coupé — le flux RTMP de
-// la PS5 n'est jamais ralenti par un spectateur lent.
+// chanWriter is a non-blocking Write to a channel. If the HTTP client cannot
+// keep up, the channel fills, Write fails and the client is dropped: the PS5's
+// RTMP stream is never slowed down by a slow viewer.
 type chanWriter struct {
 	ch   chan []byte
 	done chan struct{}
 	once sync.Once
 }
 
-var errSlowClient = errors.New("client trop lent")
+var errSlowClient = errors.New("client too slow")
 
 func newChanWriter(depth int) *chanWriter {
 	return &chanWriter{ch: make(chan []byte, depth), done: make(chan struct{})}
@@ -319,7 +319,7 @@ func (c *chanWriter) Close() error {
 	return nil
 }
 
-// playerCommand cherche mpv puis ffplay, d'abord à côté de l'exécutable.
+// playerCommand looks for mpv then ffplay, next to the executable first.
 func playerCommand(mode string) (string, []string) {
 	mpvArgs := []string{
 		"--profile=low-latency", "--no-cache", "--untimed",

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <link rel="icon" href="data:,">
 <meta charset="utf-8">
@@ -22,8 +22,8 @@
 </head>
 <body>
 <video id="v" muted playsinline></video>
-<div id="msg">En attente du flux PS5…<br>Lance une diffusion Twitch depuis la console.<br><small>f plein écran · m muet · s stats</small></div>
-<button id="sound" hidden>🔇 Activer le son</button>
+<div id="msg">Waiting for the PS5 stream…<br>Start a Twitch broadcast from the console.<br><small>f fullscreen · m mute · s stats</small></div>
+<button id="sound" hidden>🔇 Enable sound</button>
 <div id="stats" hidden></div>
 <script src="mpegts.js"></script>
 <script>
@@ -45,9 +45,9 @@ function start() {
     { type: 'flv', isLive: true, hasAudio: true, hasVideo: true, url: new URL('/live.flv', location.href).href },
     {
       enableWorker: true,
-      enableStashBuffer: false,          // pas de tampon côté loader
+      enableStashBuffer: false,          // no loader-side buffer
       lazyLoad: false,
-      liveSync: true,                     // accélère légèrement pour rattraper le direct
+      liveSync: true,                     // speeds up slightly to catch up with live
       liveSyncTargetLatency: 0.4,
       liveSyncMaxLatency: 1.0,
       liveSyncPlaybackRate: 1.1,
@@ -73,7 +73,7 @@ async function poll() {
   setTimeout(poll, 1500);
 }
 
-// Les navigateurs bloquent l'autoplay avec son : on démarre muet, un clic active le son.
+// Browsers block autoplay with sound: start muted, a click enables sound.
 function unmute() { video.muted = false; video.play().catch(() => {}); soundBtn.hidden = true; }
 soundBtn.onclick = unmute;
 video.onclick = unmute;
@@ -83,11 +83,11 @@ document.addEventListener('keydown', e => {
   if (e.key === 'm') { video.muted = !video.muted; soundBtn.hidden = !video.muted; }
 });
 
-// Latence affichée (tampon restant) — utile pour régler.
+// Displayed latency (remaining buffer), handy for tuning.
 setInterval(() => {
   if (!player || !video.buffered.length) { stats.textContent = ''; return; }
   const lag = video.buffered.end(video.buffered.length - 1) - video.currentTime;
-  stats.textContent = `tampon ${(lag * 1000).toFixed(0)} ms · ${video.videoWidth}×${video.videoHeight}`;
+  stats.textContent = `buffer ${(lag * 1000).toFixed(0)} ms · ${video.videoWidth}×${video.videoHeight}`;
 }, 500);
 
 poll();

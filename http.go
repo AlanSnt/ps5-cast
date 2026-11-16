@@ -13,9 +13,9 @@ import (
 //go:embed web/index.html web/mpegts.js
 var webFS embed.FS
 
-// StartHTTP sert :
-//   - /          page de lecture (navigateur, plein écran, à partager sur Discord)
-//   - /live.flv  le flux en HTTP-FLV (OBS « Source média », VLC, mpv…)
+// StartHTTP serves:
+//   - /          player page (browser, fullscreen, to share on Discord)
+//   - /live.flv  the stream as HTTP-FLV (OBS "Media Source", VLC, mpv…)
 //   - /status    {"live":true|false}
 func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
 	mux := http.NewServeMux()
@@ -35,20 +35,20 @@ func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
 	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go srv.Serve(l)
-	log.Printf("HTTP en écoute sur %s", addr)
+	log.Printf("HTTP listening on %s", addr)
 	return srv, nil
 }
 
 func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming non supporté", http.StatusInternalServerError)
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
-	cw := newChanWriter(240) // ~4 s de marge avant de couper un client lent
+	cw := newChanWriter(240) // ~4 s of headroom before dropping a slow client
 	out, ok := sink.AddClient(cw, cw)
 	if !ok {
-		http.Error(w, "aucun flux en cours", http.StatusServiceUnavailable)
+		http.Error(w, "no stream in progress", http.StatusServiceUnavailable)
 		return
 	}
 	defer sink.RemoveClient(out)
@@ -61,8 +61,8 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	flusher.Flush()
 
 	client := r.RemoteAddr
-	log.Printf("+ spectateur HTTP %s", client)
-	defer log.Printf("- spectateur HTTP %s", client)
+	log.Printf("+ HTTP viewer %s", client)
+	defer log.Printf("- HTTP viewer %s", client)
 
 	for {
 		select {
@@ -70,7 +70,7 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 			if _, err := w.Write(b); err != nil {
 				return
 			}
-			// Vide ce qui est déjà en attente avant de flusher (moins d'appels système).
+			// Drain what is already queued before flushing (fewer syscalls).
 			for drained := false; !drained; {
 				select {
 				case b = <-cw.ch:

@@ -37,7 +37,7 @@ func StartRTMP(addr string, sink *Sink) (*rtmp.Server, error) {
 		},
 	})
 	go srv.Serve(l)
-	log.Printf("RTMP en écoute sur %s", addr)
+	log.Printf("RTMP listening on %s", addr)
 	return srv, nil
 }
 
@@ -49,17 +49,17 @@ type rtmpHandler struct {
 }
 
 func (h *rtmpHandler) OnConnect(_ uint32, cmd *rtmpmsg.NetConnectionConnect) error {
-	log.Printf("RTMP : connexion de %s (app=%q)", h.remote, cmd.Command.App)
+	log.Printf("RTMP: connection from %s (app=%q)", h.remote, cmd.Command.App)
 	return nil
 }
 
 func (h *rtmpHandler) OnPublish(_ *rtmp.StreamContext, _ uint32, _ *rtmpmsg.NetStreamPublish) error {
-	// La clé de stream Twitch n'est jamais loggée.
+	// The Twitch stream key is never logged.
 	if !h.sink.BeginStream() {
-		return errors.New("un flux est déjà en cours")
+		return errors.New("a stream is already in progress")
 	}
 	h.publishing = true
-	log.Printf("▶ flux reçu de %s", h.remote)
+	log.Printf("▶ stream received from %s", h.remote)
 	return nil
 }
 
@@ -94,6 +94,6 @@ func (h *rtmpHandler) OnClose() {
 	if h.publishing {
 		h.publishing = false
 		h.sink.EndStream()
-		log.Printf("■ flux terminé (%s)", h.remote)
+		log.Printf("■ stream ended (%s)", h.remote)
 	}
 }
