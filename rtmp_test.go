@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,57 +19,116 @@ import (
 // startTestRTMP starts the RTMP server on a free local port.
 func startTestRTMP(t *testing.T) (addr string) {
 	t.Helper()
-	free, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr = free.Addr().String()
-	free.Close()
-	srv, err := StartRTMP(addr, NewSink("none", ""))
+	srv, bound, err := StartRTMP("127.0.0.1:0", NewSink("none", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { srv.Close() })
-	return addr
+	return bound.String()
 }
 
-// The PS5 sends "connect" with transaction ID 0 and only accepts an answer
-// carrying the same ID: with any other it waits 10 s and refuses to broadcast.
-func TestConnectIsAnsweredWithTheClientTransactionID(t *testing.T) {
-	conn, err := net.Dial("tcp4", startTestRTMP(t))
+// Transaction IDs as AMF0 encodes them: 8 bytes of a float64.
+const (
+	idZero  = "\x00\x00\x00\x00\x00\x00\x00\x00"
+	idTwo   = "\x40\x00\x00\x00\x00\x00\x00\x00"
+	idThree = "\x40\x08\x00\x00\x00\x00\x00\x00"
+)
+
+// rtmpCommand builds one RTMP chunk holding an AMF0 command: its name, its
+// transaction ID, then its arguments, already encoded.
+func rtmpCommand(name, transactionID, args string) []byte {
+	body := "\x02\x00" + string([]byte{byte(len(name))}) + name + "\x00" + transactionID + args
+	// Chunk stream 3: a command message (0x14) on message stream 0.
+	header := []byte{0x03, 0, 0, 0, 0, 0, byte(len(body)), 0x14, 0, 0, 0, 0}
+	return append(header, body...)
+}
+
+// rawRTMPClient is a client past the handshake, that writes its own commands.
+type rawRTMPClient struct {
+	net.Conn
+	t        *testing.T
+	received []byte
+}
+
+func dialRawRTMP(t *testing.T, addr string) *rawRTMPClient {
+	t.Helper()
+	conn, err := net.Dial("tcp4", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { conn.Close() })
 	conn.SetDeadline(time.Now().Add(2 * time.Second))
 	if err := handshake.HandshakeWithServer(conn, conn, &handshake.Config{}); err != nil {
 		t.Fatal(err)
 	}
+	return &rawRTMPClient{Conn: conn, t: t}
+}
 
-	const transactionID = "\x00\x00\x00\x00\x00\x00\x00\x00" // the number 0
-	connect := "\x02\x00\x07connect" + "\x00" + transactionID +
-		"\x03\x00\x03app\x02\x00\x03app\x00\x00\x09" // {app: "app"}
-	// One chunk on chunk stream 3: a command message (0x14) on stream 0.
-	header := []byte{0x03, 0, 0, 0, 0, 0, byte(len(connect)), 0x14, 0, 0, 0, 0}
-	if _, err := conn.Write(append(header, connect...)); err != nil {
-		t.Fatal(err)
+func (c *rawRTMPClient) send(name, transactionID, args string) {
+	c.t.Helper()
+	if _, err := c.Write(rtmpCommand(name, transactionID, args)); err != nil {
+		c.t.Fatal(err)
 	}
+}
 
+// awaitResult reads until the server has sent count "_result" answers and
+// returns the transaction ID of the last one.
+func (c *rawRTMPClient) awaitResult(count int) (transactionID string) {
+	c.t.Helper()
 	result := []byte("\x02\x00\x07_result\x00")
-	var answer []byte
 	buf := make([]byte, 1024)
 	for {
-		n, err := conn.Read(buf)
-		answer = append(answer, buf[:n]...)
-		if i := bytes.Index(answer, result); i >= 0 && len(answer) >= i+len(result)+8 {
-			if got := string(answer[i+len(result):][:8]); got != transactionID {
-				t.Errorf("_result carries transaction ID %x, want %x", got, transactionID)
-			}
-			return
+		last := bytes.LastIndex(c.received, result)
+		if bytes.Count(c.received, result) >= count && len(c.received) >= last+len(result)+8 {
+			return string(c.received[last+len(result):][:8])
 		}
-		if err != nil {
-			t.Fatalf("no _result in the answer to connect: %v", err)
+		n, err := c.Read(buf)
+		c.received = append(c.received, buf[:n]...)
+		if err != nil && n == 0 {
+			c.t.Fatalf("answer %d never came: %v", count, err)
 		}
+	}
+}
+
+const connectArgs = "\x03\x00\x03app\x02\x00\x03app\x00\x00\x09" // {app: "app"}
+
+// The PS5 sends "connect" with transaction ID 0 and only accepts an answer
+// carrying the same ID: with any other it waits 10 s and refuses to broadcast.
+func TestConnectIsAnsweredWithTheClientTransactionID(t *testing.T) {
+	client := dialRawRTMP(t, startTestRTMP(t))
+
+	client.send("connect", idZero, connectArgs)
+
+	if got := client.awaitResult(1); got != idZero {
+		t.Errorf("_result carries transaction ID %x, want %x", got, idZero)
+	}
+}
+
+// The console is what users paste when they report a problem: a command the
+// RTMP library does not know must not put its arguments there.
+func TestArgumentsOfUnknownCommandsAreNotPrinted(t *testing.T) {
+	console, err := os.Create(filepath.Join(t.TempDir(), "console"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = console
+	log.SetOutput(console)
+	t.Cleanup(func() { os.Stderr = stderr; log.SetOutput(stderr); console.Close() })
+
+	client := dialRawRTMP(t, startTestRTMP(t))
+	client.send("connect", idZero, connectArgs)
+	client.awaitResult(1)
+	client.send("_checkbw", idTwo, "\x05\x02\x00\x0elive_SECRETKEY")
+	client.send("createStream", idThree, "\x05")
+	client.awaitResult(2) // answered after _checkbw was handled
+
+	printed, err := os.ReadFile(console.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(printed), "SECRETKEY") {
+		t.Errorf("the console shows a command argument:\n%s", printed)
 	}
 }
 
@@ -80,8 +140,9 @@ func (l logLines) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// When the PS5 connects and then gives up, the console must say how far it got.
-func TestClientLeavingBeforePublishingIsReportedWithItsSteps(t *testing.T) {
+// When a client connects and no stream follows, the console must say how far
+// the exchange went.
+func TestConnectionClosedBeforePublishingIsReportedWithItsSteps(t *testing.T) {
 	addr := startTestRTMP(t)
 
 	lines := make(logLines, 16)
@@ -102,7 +163,7 @@ func TestClientLeavingBeforePublishingIsReportedWithItsSteps(t *testing.T) {
 	}
 	client.Close()
 
-	const want = "left without sending a stream after: connect, createStream"
+	const want = "closed without a stream after: connect, createStream"
 	timeout := time.After(2 * time.Second)
 	for {
 		select {

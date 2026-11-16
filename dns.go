@@ -14,7 +14,8 @@ import (
 // Twitch ingest domains. ingest.twitch.tv is deliberately NOT redirected:
 // it is an HTTPS discovery endpoint, intercepting it would break the stream.
 var defaultSpoof = []string{
-	"*contribute.live-video.net",
+	"*.contribute.live-video.net",
+	"*.global-contribute.live-video.net",
 	"live*.twitch.tv",
 }
 

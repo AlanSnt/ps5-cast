@@ -87,7 +87,7 @@ func rtmpHost(urlTemplate string) (string, bool) {
 	if err != nil || u.Scheme != "rtmp" {
 		return "", false
 	}
-	host := strings.ToLower(u.Hostname())
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	isHostChar := func(r rune) bool {
 		return r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.'
 	}

@@ -58,7 +58,7 @@ func main() {
 	}
 	defer dnsSrv.Shutdown()
 
-	rtmpSrv, err := StartRTMP(":1935", sink)
+	rtmpSrv, _, err := StartRTMP(":1935", sink)
 	if err != nil {
 		log.Fatalf("RTMP: %v", err)
 	}
@@ -208,7 +208,7 @@ func startTLSProbe(ctx context.Context) {
 			}
 			if time.Since(last) > 10*time.Second {
 				log.Printf("⚠ %s attempts a TLS connection on :443 (RTMPS?), which cannot be intercepted. "+
-					"Check the DNS domains logged just before and remove that one from -spoof.", c.RemoteAddr())
+					"Check the DNS domains logged just before and pass -spoof with the redirected domains except that one.", c.RemoteAddr())
 				last = time.Now()
 			}
 			c.Close()

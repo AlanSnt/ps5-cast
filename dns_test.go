@@ -11,6 +11,7 @@ func TestDefaultSpoofMatchesIngestDomains(t *testing.T) {
 		"ingest.twitch.tv.":                        false,
 		"api.twitch.tv.":                           false,
 		"video-edge.live-video.net.":               false,
+		"whip-contribute.live-video.net.":          false,
 	}
 	for name, want := range cases {
 		if got := h.match(name); got != want {

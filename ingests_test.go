@@ -24,6 +24,7 @@ func TestPublishedIngestsAreRedirected(t *testing.T) {
 		{"url_template": "rtmp://cdg10.contribute.live-video.net/app/{stream_key}"},
 		{"url_template": "rtmp://Ingest.New-Network.example.net/app/{stream_key}"},
 		{"url_template": "rtmp://ingest.new-network.example.net/app/{stream_key}"},
+		{"url_template": "rtmp://trailing-dot.example.net./app/{stream_key}"},
 		{"url_template": "rtmp://*.example.org/app/{stream_key}"},
 		{"url_template": "rtmps://secure-only.example.net:443/app/{stream_key}"},
 		{"url_template": ""}
@@ -31,7 +32,7 @@ func TestPublishedIngestsAreRedirected(t *testing.T) {
 
 	got := spoofPatterns(context.Background(), "", srv.URL)
 
-	want := append(slices.Clone(defaultSpoof), "ingest.new-network.example.net")
+	want := append(slices.Clone(defaultSpoof), "ingest.new-network.example.net", "trailing-dot.example.net")
 	if !slices.Equal(got, want) {
 		t.Errorf("spoofPatterns = %v, want %v", got, want)
 	}

@@ -68,7 +68,7 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 |---|---|---|
 | `-ip` | auto | local IP of the PC |
 | `-upstream` | `1.1.1.1:53` | public DNS for all other queries |
-| `-spoof` | `*contribute.live-video.net,live*.twitch.tv` + Twitch's published ingests | exact list of domains redirected to the PC; when set, Twitch's list is not read |
+| `-spoof` | `*.contribute.live-video.net,*.global-contribute.live-video.net,live*.twitch.tv` + Twitch's published ingests | exact list of domains redirected to the PC; when set, Twitch's list is not read |
 | `-player` | `auto` | `mpv`, `ffplay` or `none` |
 | `-http` | `:8080` | web page and HTTP-FLV stream (empty = disabled) |
 | `-open` | `auto` | open the page at startup: `auto` (if no mpv), `always`, `never` |
@@ -86,8 +86,8 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
     sudo systemctl restart systemd-resolved
     ```
 - **Linux, "permission denied" on port 53**: the `setcap` command from the setup was not run (run it again after every update of the binary).
-- **The PS5 broadcasts but nothing arrives**: look at the `dns …` lines in the console. If a new ingest domain shows up, add it with `-spoof "*contribute.live-video.net,live*.twitch.tv,new.domain"`. A "Twitch ingest list unavailable" line at startup means only the built-in domains are redirected.
-- **"left without sending a stream after: …" message**: the PS5 reached the PC but gave up before broadcasting. The list is how far the RTMP exchange went; include that line when reporting the problem (it never contains the stream key).
+- **The PS5 broadcasts but nothing arrives**: look at the `dns …` lines in the console. If a new ingest domain shows up, add it with `-spoof "*.contribute.live-video.net,*.global-contribute.live-video.net,live*.twitch.tv,new.domain"`; a `-spoof` list replaces the automatic one, Twitch's published list included. A "Twitch ingest list unavailable" line at startup means only the built-in domains are redirected.
+- **"closed without a stream after: …" message**: a device reached the PC over RTMP but no stream followed. The list is how far the exchange went (commands the RTMP library does not know are not listed); include that line when reporting the problem, it never contains the stream key. A "refused, another one is already in progress" line just before means ps5cast itself turned the stream down.
 - **"attempts a TLS connection on :443" message**: the PS5 is trying RTMPS (encrypted), which cannot be intercepted. The domain logged just before must not be redirected: pass `-spoof` with the list of domains without that one.
 - **"host not allowed" (403) on the web page or in OBS**: open it with `localhost` or the PC's IP address. The console prints the refused name. A machine name such as `my-pc.local` is refused on purpose: it is what stops another website from reading the stream through DNS rebinding.
 - **Nothing at all**: check the PC's firewall (inbound ports 53 UDP/TCP and 1935 TCP; private profile on Windows).
