@@ -1,9 +1,12 @@
 name: build
 
 # Pull requests only compile; a vX.Y.Z tag also publishes the binaries as a release,
-# and a suffixed tag (vX.Y.Z-alpha) as a pre-release.
+# and a suffixed tag (vX.Y.Z-alpha) as a pre-release. The weekly run reports a
+# vulnerability published while the repository is idle.
 on:
   pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
@@ -15,16 +18,30 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TARGETS: windows/amd64 darwin/arm64 darwin/amd64 linux/amd64
     steps:
       - uses: actions/checkout@v7
 
+      # Always the latest patched Go: a pinned version ends up unsupported unnoticed.
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
 
       - run: go vet ./...
 
       - run: go test -race ./...
+
+      # A known vulnerability reachable from the code of any released target
+      # fails the build, releases included.
+      - name: Scan every target for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          read -ra targets <<< "$TARGETS"
+          for target in "${targets[@]}"; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" govulncheck ./...
+          done
 
       - name: Build all targets
         env:
@@ -35,7 +52,8 @@ jobs:
             ldflags="$ldflags -X main.version=${GITHUB_REF_NAME#v}"
           fi
           mkdir dist
-          for target in windows/amd64 darwin/arm64 darwin/amd64 linux/amd64; do
+          read -ra targets <<< "$TARGETS"
+          for target in "${targets[@]}"; do
             export GOOS="${target%/*}" GOARCH="${target#*/}"
             name="ps5cast-$GOOS-$GOARCH"
             if [ "$GOOS" = windows ]; then
