@@ -100,7 +100,7 @@ go build -trimpath -ldflags="-s -w" .
 
 For another platform, add `GOOS` and `GOARCH` (for example `GOOS=windows GOARCH=amd64`).
 
-Dependencies: `github.com/miekg/dns` and `github.com/yutopp/go-rtmp`. The web player uses [mpegts.js](https://github.com/xqq/mpegts.js) 1.8.2 (Apache-2.0), embedded in the binary.
+Dependencies: `github.com/miekg/dns` and `github.com/yutopp/go-rtmp`, the latter through the fork [`AlanSnt/go-rtmp`](https://github.com/AlanSnt/go-rtmp): the PS5 sends its RTMP `connect` command with transaction ID 0 and only accepts an answer carrying the same ID, which the upstream library does not send. The web player uses [mpegts.js](https://github.com/xqq/mpegts.js) 1.8.2 (Apache-2.0), embedded in the binary.
 
 ### Publishing a release
 
