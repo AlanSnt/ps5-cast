@@ -1,0 +1,73 @@
+name: build
+
+# Pull requests only compile; a vX.Y.Z tag also publishes the binaries as a release.
+on:
+  pull_request:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: go vet ./...
+
+      - name: Build all targets
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          ldflags="-s -w"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            ldflags="$ldflags -X main.version=${GITHUB_REF_NAME#v}"
+          fi
+          mkdir dist
+          for target in windows/amd64 darwin/arm64 darwin/amd64 linux/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}"
+            name="ps5cast-$GOOS-$GOARCH"
+            if [ "$GOOS" = windows ]; then
+              go build -trimpath -ldflags="$ldflags" -o "dist/$name.exe" .
+            else
+              # tar keeps the executable bit, which a raw download would lose
+              go build -trimpath -ldflags="$ldflags" -o ps5cast .
+              tar -czf "dist/$name.tar.gz" ps5cast
+            fi
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binaries
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: binaries
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # create uploads the assets before publishing; a re-run only replaces them
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+          fi
