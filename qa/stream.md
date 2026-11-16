@@ -13,6 +13,7 @@ Automated scenarios run with `go test -race ./...`. End-to-end scenarios publish
 | STR-6 | Test | `-ip` set to `192.168.1.300`, `eth0` or `::1` | Startup fails with "is not an IPv4 address" |
 | STR-7 | Test | `-http` on all interfaces, on loopback, on one interface, on port 0 | The printed URLs match the address really bound |
 | STR-8 | Test | Banner with ffplay, without a player, without a web page | It names the player in use, or warns that nothing displays the stream |
+| STR-13 | Test | Request `/status` with a `Host` of `localhost`, an IP, `evil.example`, `my-pc.local` | 200 for localhost and IPs, 403 for the names |
 | STR-9 | End-to-end | Publish 5 s then 3 s with `-record rec.flv` | `rec.flv` (5 s) and `rec-2.flv` (3 s) are valid H.264/AAC; the player and `/live.flv` receive the stream; the stream key is not logged |
 | STR-10 | End-to-end | Publish 10 s at 60 fps to a player that never reads | "player closed or stalled" is logged after about 10 s, the publisher is not slowed and `/live.flv` still serves the stream |
 | STR-11 | Manual | Pause a real mpv window during a PS5 broadcast | The window closes after about 10 s; Enter reopens it |

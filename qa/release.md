@@ -2,7 +2,7 @@
 
 | ID | Mode | Scenario | Expected |
 |---|---|---|---|
-| REL-1 | CI | Open a pull request | The `build` workflow is green: `go vet` passes and the four targets compile |
+| REL-1 | CI | Open a pull request | The `build` workflow is green: `go vet`, the tests and `govulncheck` pass on the latest stable Go, and the four targets compile |
 | REL-2 | CI | Push a `vX.Y.Z` tag | A GitHub release named after the tag holds `ps5cast-windows-amd64.exe` and the three `.tar.gz` archives |
 | REL-7 | CI | Push a `vX.Y.Z-alpha` tag | The release is marked pre-release and is not the latest one |
 | REL-3 | Local | Run the build step with `GITHUB_REF_NAME=v9.9.9`, start the binary | The banner shows `ps5cast 9.9.9` |
