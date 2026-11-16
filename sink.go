@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,10 +24,10 @@ const (
 
 var flvHeader = []byte{'F', 'L', 'V', 1, 0x05, 0, 0, 0, 9, 0, 0, 0, 0}
 
-// Sink reçoit les tags FLV du flux RTMP et les distribue à plusieurs sorties :
-// le lecteur local, un fichier, et les clients HTTP-FLV (navigateur, OBS, VLC).
-// Il garde en cache les métadonnées et les "sequence headers" H.264/AAC pour
-// brancher une sortie en cours de flux : elle démarre sur la prochaine image clé.
+// Sink receives the FLV tags of the RTMP stream and fans them out to several
+// outputs: the local player, a file, and the HTTP-FLV clients (browser, OBS, VLC).
+// It caches the metadata and the H.264/AAC sequence headers so an output can
+// join mid-stream: it starts on the next keyframe.
 type Sink struct {
 	playerMode string
 	recordPath string
@@ -40,14 +43,14 @@ type Sink struct {
 	clients map[*output]struct{}
 }
 
-// output = une destination FLV.
+// output is one FLV destination.
 type output struct {
 	w      *bufio.Writer
 	closer io.Closer
 	cmd    *exec.Cmd
-	synced bool   // a reçu une image clé
-	base   uint32 // timestamp de la 1re image clé → rebase à 0
-	broken bool
+	synced bool   // received a keyframe
+	base   uint32 // timestamp of the first keyframe → rebased to 0
+	err    error  // first failed write: the output is dead
 }
 
 func NewSink(playerMode, recordPath string) *Sink {
@@ -64,14 +67,32 @@ func (s *Sink) BeginStream() bool {
 	s.meta, s.videoSeq, s.audioSeq = nil, nil, nil
 	s.openPlayerLocked()
 	if s.recordPath != "" && s.record == nil {
-		if f, err := os.Create(s.recordPath); err != nil {
-			log.Printf("enregistrement impossible : %v", err)
+		if f, err := createRecord(s.recordPath); err != nil {
+			log.Printf("cannot record: %v", err)
 		} else {
 			s.record = newOutput(f, f, nil)
-			log.Printf("enregistrement → %s", s.recordPath)
+			log.Printf("recording → %s", f.Name())
 		}
 	}
 	return true
+}
+
+// createRecord never overwrites an earlier recording: when path already exists
+// (a previous run, or the PS5 reconnecting) it creates game-2.flv, game-3.flv…
+func createRecord(path string) (*os.File, error) {
+	if st, err := os.Stat(path); err == nil && st.IsDir() {
+		return nil, fmt.Errorf("%s is a directory, not a file", path)
+	}
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	name := path
+	for n := 2; ; n++ {
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if !errors.Is(err, fs.ErrExist) {
+			return f, err
+		}
+		name = fmt.Sprintf("%s-%d%s", stem, n, ext)
+	}
 }
 
 func (s *Sink) EndStream() {
@@ -79,7 +100,9 @@ func (s *Sink) EndStream() {
 	defer s.mu.Unlock()
 	s.active = false
 	s.closeOutput(&s.player)
-	s.closeOutput(&s.record)
+	if err := s.closeOutput(&s.record); err != nil {
+		log.Printf("recording may be incomplete: %v", err)
+	}
 	for c := range s.clients {
 		s.dropClientLocked(c)
 	}
@@ -91,15 +114,15 @@ func (s *Sink) Active() bool {
 	return s.active
 }
 
-// Reopen relance le lecteur si le flux tourne et que la fenêtre a été fermée.
+// Reopen restarts the player if the stream is live and the window was closed.
 func (s *Sink) Reopen() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.active {
-		log.Println("aucun flux en cours")
+		log.Println("no stream in progress")
 		return
 	}
-	if s.player != nil && !s.player.broken {
+	if s.player != nil && s.player.err == nil {
 		return
 	}
 	s.closeOutput(&s.player)
@@ -111,7 +134,7 @@ func (s *Sink) Reopen() {
 
 func (s *Sink) Close() { s.EndStream() }
 
-// AddClient branche une sortie supplémentaire (client HTTP) sur le flux en cours.
+// AddClient attaches an extra output (HTTP client) to the current stream.
 func (s *Sink) AddClient(w io.Writer, c io.Closer) (*output, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -154,18 +177,22 @@ func (s *Sink) Write(kind byte, ts uint32, data []byte) {
 	}
 
 	for _, o := range []*output{s.player, s.record} {
-		if o != nil && !o.broken {
+		if o != nil && o.err == nil {
 			s.writeTo(o, kind, ts, data)
 		}
 	}
-	if s.player != nil && s.player.broken {
-		log.Println("fenêtre fermée — appuie sur Entrée pour la rouvrir")
+	if s.player != nil && s.player.err != nil {
+		log.Println("player closed or stalled — press Enter to reopen it")
 		s.closeOutput(&s.player)
+	}
+	if s.record != nil && s.record.err != nil {
+		log.Printf("recording stopped: %v", s.record.err)
+		s.closeOutput(&s.record)
 	}
 	for c := range s.clients {
 		s.writeTo(c, kind, ts, data)
-		if c.broken {
-			s.dropClientLocked(c) // client trop lent ou parti : on le coupe
+		if c.err != nil {
+			s.dropClientLocked(c) // client too slow or gone: drop it
 		}
 	}
 }
@@ -177,7 +204,7 @@ func (s *Sink) writeTo(o *output, kind byte, ts uint32, data []byte) {
 
 	if !o.synced && !isConfig {
 		if kind != tagVideo || !isKeyframe(data) {
-			return // on attend une image clé pour démarrer net
+			return // wait for a keyframe to start cleanly
 		}
 		o.synced, o.base = true, ts
 	}
@@ -186,17 +213,17 @@ func (s *Sink) writeTo(o *output, kind byte, ts uint32, data []byte) {
 		rel = ts - o.base
 	}
 	if err := writeTag(o.w, kind, rel, data); err != nil {
-		o.broken = true
+		o.err = err
 		return
 	}
 	if kind == tagVideo {
-		if err := o.w.Flush(); err != nil { // 1 flush par image : latence minimale
-			o.broken = true
+		if err := o.w.Flush(); err != nil { // one flush per frame: minimal latency
+			o.err = err
 		}
 	}
 }
 
-// primeLocked envoie à une sortie fraîchement branchée ce qu'il faut pour décoder.
+// primeLocked sends a freshly attached output what it needs to decode.
 func (s *Sink) primeLocked(o *output) {
 	for _, t := range []struct {
 		kind byte
@@ -206,8 +233,8 @@ func (s *Sink) primeLocked(o *output) {
 			s.writeTo(o, t.kind, 0, t.data)
 		}
 	}
-	if o.w.Flush() != nil {
-		o.broken = true
+	if err := o.w.Flush(); err != nil {
+		o.err = err
 	}
 }
 
@@ -215,49 +242,71 @@ func (s *Sink) openPlayerLocked() {
 	if s.player != nil || s.playerMode == "none" {
 		return
 	}
-	name, args := playerCommand(s.playerMode)
-	if name == "" {
-		return // pas de lecteur local : la page web fait l'affaire
+	name, path, args := playerCommand(s.playerMode)
+	if path == "" {
+		return // no local player: the web page does the job
 	}
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(path, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Printf("lecteur : %v", err)
+		log.Printf("player: %v", err)
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		log.Printf("lecteur : %v", err)
+		log.Printf("player: %v", err)
 		return
 	}
-	go cmd.Wait() // évite les zombies ; une écriture échouera si la fenêtre est fermée
-	s.player = newOutput(stdin, stdin, cmd)
-	log.Printf("fenêtre ouverte avec %s", filepath.Base(name))
+	go cmd.Wait() // avoids zombies
+	s.player = newPlayerOutput(stdin, cmd)
+	log.Printf("window opened with %s", name)
 }
 
-func (s *Sink) closeOutput(p **output) {
+func (s *Sink) closeOutput(p **output) error {
 	o := *p
 	if o == nil {
-		return
+		return nil
 	}
-	o.w.Flush()
-	o.closer.Close() // EOF → le lecteur se ferme tout seul
+	err := errors.Join(o.w.Flush(), o.closer.Close())
 	if o.cmd != nil && o.cmd.Process != nil {
 		proc := o.cmd.Process
-		time.AfterFunc(3*time.Second, func() { proc.Kill() }) // filet de sécurité
+		time.AfterFunc(3*time.Second, func() { proc.Kill() }) // safety net
 	}
 	*p = nil
+	return err
+}
+
+// newPlayerOutput feeds the player through a queue drained by its own
+// goroutine: a player that stops reading (paused, frozen) fills the queue and
+// is dropped, instead of blocking the sink and every other output with it.
+func newPlayerOutput(stdin io.WriteCloser, cmd *exec.Cmd) *output {
+	queue := newChanWriter(playerQueue)
+	go func() {
+		defer stdin.Close() // EOF → the player exits on its own
+		for {
+			select {
+			case b := <-queue.ch:
+				if _, err := stdin.Write(b); err != nil {
+					queue.Close() // window closed: the next sink write fails and drops the output
+					return
+				}
+			case <-queue.done:
+				return
+			}
+		}
+	}()
+	return newOutput(queue, queue, cmd)
 }
 
 func newOutput(w io.Writer, c io.Closer, cmd *exec.Cmd) *output {
 	o := &output{w: bufio.NewWriterSize(w, 256<<10), closer: c, cmd: cmd}
 	if _, err := o.w.Write(flvHeader); err != nil {
-		o.broken = true
+		o.err = err
 	}
 	return o
 }
 
-// writeTag écrit un tag FLV : en-tête 11 octets + données + taille précédente.
+// writeTag writes one FLV tag: 11-byte header + data + previous tag size.
 func writeTag(w *bufio.Writer, kind byte, ts uint32, data []byte) error {
 	var hdr [11]byte
 	n := len(data)
@@ -276,23 +325,29 @@ func writeTag(w *bufio.Writer, kind byte, ts uint32, data []byte) error {
 	return err
 }
 
-// H.264 FLV : octet 0 = frameType<<4 | codecID(7), octet 1 = AVCPacketType.
+// H.264 FLV: byte 0 = frameType<<4 | codecID(7), byte 1 = AVCPacketType.
 func isVideoSeqHeader(d []byte) bool { return len(d) > 1 && d[0]&0x0f == 7 && d[1] == 0 }
 func isKeyframe(d []byte) bool       { return len(d) > 0 && d[0]>>4 == 1 }
 
-// AAC FLV : octet 0 = soundFormat(10)<<4 | …, octet 1 = AACPacketType.
+// AAC FLV: byte 0 = soundFormat(10)<<4 | …, byte 1 = AACPacketType.
 func isAudioSeqHeader(d []byte) bool { return len(d) > 1 && d[0]>>4 == 10 && d[1] == 0 }
 
-// chanWriter : Write non bloquant vers un canal. Si le client HTTP ne suit pas,
-// le canal se remplit, Write échoue et le client est coupé — le flux RTMP de
-// la PS5 n'est jamais ralenti par un spectateur lent.
+// chanWriter is a non-blocking Write to a channel. If the reader (HTTP client
+// or local player) cannot keep up, the channel fills, Write fails and the
+// output is dropped: the PS5's RTMP stream is never slowed down by a slow reader.
 type chanWriter struct {
 	ch   chan []byte
 	done chan struct{}
 	once sync.Once
 }
 
-var errSlowClient = errors.New("client trop lent")
+var errSlowClient = errors.New("client too slow")
+
+// How many video frames a reader may fall behind before it is dropped.
+const (
+	viewerQueue = 240 // ~4 s at 60 fps
+	playerQueue = 600 // ~10 s at 60 fps: a cold-starting player needs time to open
+)
 
 func newChanWriter(depth int) *chanWriter {
 	return &chanWriter{ch: make(chan []byte, depth), done: make(chan struct{})}
@@ -319,8 +374,9 @@ func (c *chanWriter) Close() error {
 	return nil
 }
 
-// playerCommand cherche mpv puis ffplay, d'abord à côté de l'exécutable.
-func playerCommand(mode string) (string, []string) {
+// playerCommand looks for mpv then ffplay, next to the executable first. It
+// returns the player's name, the path of its executable and its arguments.
+func playerCommand(mode string) (name, path string, args []string) {
 	mpvArgs := []string{
 		"--profile=low-latency", "--no-cache", "--untimed",
 		"--demuxer-lavf-format=flv", "--demuxer-lavf-probesize=32768",
@@ -339,18 +395,19 @@ func playerCommand(mode string) (string, []string) {
 	}
 	for _, name := range order {
 		if p := findExe(name); p != "" {
-			return p, candidates[name]
+			return name, p, candidates[name]
 		}
 	}
-	return "", nil
+	return "", "", nil
 }
 
-func hasLocalPlayer(mode string) bool {
+// localPlayerName returns "mpv" or "ffplay", or "" when no local player will be used.
+func localPlayerName(mode string) string {
 	if mode == "none" {
-		return false
+		return ""
 	}
-	p, _ := playerCommand(mode)
-	return p != ""
+	name, _, _ := playerCommand(mode)
+	return name
 }
 
 func findExe(name string) string {

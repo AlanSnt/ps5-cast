@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/mpegts.js
+//go:embed web
 var webFS embed.FS
 
-// StartHTTP sert :
-//   - /          page de lecture (navigateur, plein écran, à partager sur Discord)
-//   - /live.flv  le flux en HTTP-FLV (OBS « Source média », VLC, mpv…)
+// StartHTTP serves:
+//   - /          player page (browser, fullscreen, to share on Discord)
+//   - /live.flv  the stream as HTTP-FLV (OBS "Media Source", VLC, mpv…)
 //   - /status    {"live":true|false}
-func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
+func StartHTTP(addr string, sink *Sink) (*http.Server, *net.TCPAddr, error) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServerFS(mustSub(webFS, "web")))
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
@@ -31,24 +31,27 @@ func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
 
 	l, err := net.Listen("tcp4", addr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go srv.Serve(l)
-	log.Printf("HTTP en écoute sur %s", addr)
-	return srv, nil
+	log.Printf("HTTP listening on %s", l.Addr())
+	return srv, l.Addr().(*net.TCPAddr), nil
 }
+
+// flvWriteTimeout is how long a viewer may accept no data before it is disconnected.
+var flvWriteTimeout = 10 * time.Second
 
 func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming non supporté", http.StatusInternalServerError)
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
-	cw := newChanWriter(240) // ~4 s de marge avant de couper un client lent
+	cw := newChanWriter(viewerQueue)
 	out, ok := sink.AddClient(cw, cw)
 	if !ok {
-		http.Error(w, "aucun flux en cours", http.StatusServiceUnavailable)
+		http.Error(w, "no stream in progress", http.StatusServiceUnavailable)
 		return
 	}
 	defer sink.RemoveClient(out)
@@ -56,25 +59,33 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	h := w.Header()
 	h.Set("Content-Type", "video/x-flv")
 	h.Set("Cache-Control", "no-store")
-	h.Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
 	client := r.RemoteAddr
-	log.Printf("+ spectateur HTTP %s", client)
-	defer log.Printf("- spectateur HTTP %s", client)
+	conn := http.NewResponseController(w)
+	log.Printf("+ HTTP viewer %s", client)
+	defer log.Printf("- HTTP viewer %s", client)
+
+	// Each write gets its own deadline: without one, a stalled viewer would
+	// block the write for minutes.
+	write := func(b []byte) error {
+		conn.SetWriteDeadline(time.Now().Add(flvWriteTimeout))
+		_, err := w.Write(b)
+		return err
+	}
 
 	for {
 		select {
 		case b := <-cw.ch:
-			if _, err := w.Write(b); err != nil {
+			if write(b) != nil {
 				return
 			}
-			// Vide ce qui est déjà en attente avant de flusher (moins d'appels système).
+			// Drain what is already queued before flushing (fewer syscalls).
 			for drained := false; !drained; {
 				select {
 				case b = <-cw.ch:
-					if _, err := w.Write(b); err != nil {
+					if write(b) != nil {
 						return
 					}
 				default:
