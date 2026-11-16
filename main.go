@@ -30,7 +30,7 @@ func main() {
 	var (
 		ipFlag    = flag.String("ip", "", "local IP of this PC (auto-detected if empty)")
 		upstream  = flag.String("upstream", "1.1.1.1:53", "public DNS that other queries are relayed to")
-		spoofFlag = flag.String("spoof", strings.Join(defaultSpoof, ","), "domain patterns redirected to this PC (comma-separated)")
+		spoofFlag = flag.String("spoof", "", "exact domain patterns redirected to this PC, comma-separated (default: "+strings.Join(defaultSpoof, ",")+" plus the ingest servers Twitch publishes)")
 		player    = flag.String("player", "auto", "player: auto | mpv | ffplay | none")
 		record    = flag.String("record", "", "also record the stream to this .flv file (never overwrites: adds -2, -3…)")
 		verbose   = flag.Bool("v", false, "log every DNS query")
@@ -52,7 +52,7 @@ func main() {
 	sink := NewSink(*player, *record)
 	defer sink.Close()
 
-	dnsSrv, err := StartDNS(ip, *upstream, splitPatterns(*spoofFlag), *verbose)
+	dnsSrv, err := StartDNS(ip, *upstream, spoofPatterns(ctx, *spoofFlag, twitchIngestsURL), *verbose)
 	if err != nil {
 		log.Fatalf("DNS: %v\n→ port 53 is already in use (Windows connection sharing, Docker, Hyper-V, systemd-resolved…) or not permitted (Linux: setcap, see the README)", err)
 	}

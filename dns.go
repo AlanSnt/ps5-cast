@@ -76,8 +76,13 @@ func listenAndServe(s *dns.Server) error {
 }
 
 func (h *dnsHandler) match(name string) bool {
+	return matchAny(h.patterns, name)
+}
+
+// matchAny reports whether a domain name matches one of the patterns.
+func matchAny(patterns []string, name string) bool {
 	name = strings.TrimSuffix(strings.ToLower(name), ".")
-	for _, p := range h.patterns {
+	for _, p := range patterns {
 		if ok, _ := path.Match(p, name); ok {
 			return true
 		}
