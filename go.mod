@@ -6,6 +6,7 @@ require (
 	github.com/miekg/dns v1.1.73
 	github.com/sirupsen/logrus v1.10.2
 	github.com/yutopp/go-rtmp v0.0.7
+	golang.org/x/mod v0.43.0
 )
 
 require (

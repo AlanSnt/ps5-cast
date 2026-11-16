@@ -30,6 +30,8 @@ Pick the file for your system from the [latest release](https://github.com/AlanS
 
 Requires Windows 10, macOS 13 or a 64-bit Linux, or later. The binaries are not signed: Windows and macOS show a warning on first launch.
 
+At startup, a released binary asks GitHub for the latest stable release and prints a link in the console when a newer one exists. It downloads nothing by itself.
+
 ## Setup
 
 1. *(Optional)* Install mpv: `winget install mpv` (Windows), `brew install mpv` (macOS) or your distribution's `mpv` package (Linux). You can also drop the mpv binary next to ps5cast. Without mpv, the web page opens on its own.

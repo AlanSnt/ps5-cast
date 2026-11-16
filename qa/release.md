@@ -9,3 +9,5 @@
 | REL-4 | Local, macOS | Start the darwin binary without `sudo`, query `dig @127.0.0.1 example.com` and `http://localhost:8080` | DNS answers and the page returns 200 |
 | REL-5 | Manual, Linux | Extract the archive, run the `setcap` command from the README, start `./ps5cast` | DNS listens on port 53 without `sudo` |
 | REL-6 | Manual, Windows | Download the `.exe` from the latest release and start it | The banner is printed and the web page opens |
+| REL-8 | Test | Versions 0.1.0, 0.2.0-alpha, 0.2.0, 0.3.0-alpha and a `dev` build, with v0.2.0 as the latest stable release; then GitHub answering 403, something else than JSON, or an unexpected tag | 0.2.0 is reported to the first two only; the `dev` build does not ask GitHub; an unusable answer reports nothing |
+| REL-9 | Local | Start a binary built with `-X main.version=0.0.9`, then one built with the latest stable version | Only the first prints "ps5cast X.Y.Z is available" with the link to the latest release |

@@ -80,6 +80,7 @@ func main() {
 
 	playerName := localPlayerName(*player)
 	fmt.Print(banner(ip, playerName, localURL, lanURL))
+	go announceNewerVersion(ctx, version)
 
 	if localURL != "" && (*openFlag == "always" || (*openFlag == "auto" && playerName == "")) {
 		openBrowser(localURL)
