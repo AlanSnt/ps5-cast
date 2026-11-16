@@ -1,10 +1,13 @@
 name: build
 
-# Pull requests only compile; a vX.Y.Z tag also publishes the binaries as a release.
+# Pull requests only compile; a vX.Y.Z tag also publishes the binaries as a release,
+# and a suffixed tag (vX.Y.Z-alpha) as a pre-release.
 on:
   pull_request:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 permissions:
   contents: read
@@ -67,9 +70,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          flags=(--generate-notes)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease) # never becomes the "latest" release
+          fi
           # create uploads the assets before publishing; a re-run only replaces them
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/* "${flags[@]}"
           fi

@@ -103,6 +103,8 @@ Dependencies: `github.com/miekg/dns` and `github.com/yutopp/go-rtmp`. The web pl
 
 Push a `vX.Y.Z` tag: the [`build.yml`](.github/workflows/build.yml) workflow compiles the four binaries and attaches them to a GitHub release. The tag becomes the version printed at startup.
 
+A tag with a suffix, such as `v0.2.0-alpha`, is published as a pre-release: it never becomes the latest release, so the download links above keep pointing to the last stable version.
+
 ```sh
 git tag v0.2.0
 git push origin v0.2.0
