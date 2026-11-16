@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/mpegts.js
+//go:embed web
 var webFS embed.FS
 
 // StartHTTP serves:
