@@ -18,13 +18,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Always the latest patched Go: a pinned version ends up unsupported unnoticed.
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
 
       - run: go vet ./...
 
       - run: go test -race ./...
+
+      # A known vulnerability reachable from the code fails the build, releases included.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - name: Build all targets
         env:
