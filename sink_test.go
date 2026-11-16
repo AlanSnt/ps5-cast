@@ -86,7 +86,7 @@ func TestRecordingNeverOverwritesAnExistingFile(t *testing.T) {
 type failingFile struct{}
 
 func (failingFile) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
-func (failingFile) Close() error               { return nil }
+func (failingFile) Close() error              { return nil }
 
 func TestFailedRecordingIsReportedAndClosed(t *testing.T) {
 	sink := liveSink(t)

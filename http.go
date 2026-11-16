@@ -39,6 +39,9 @@ func StartHTTP(addr string, sink *Sink) (*http.Server, error) {
 	return srv, nil
 }
 
+// flvWriteTimeout is how long a viewer may accept no data before it is disconnected.
+var flvWriteTimeout = 10 * time.Second
+
 func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -60,12 +63,15 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	flusher.Flush()
 
 	client := r.RemoteAddr
+	conn := http.NewResponseController(w)
 	log.Printf("+ HTTP viewer %s", client)
 	defer log.Printf("- HTTP viewer %s", client)
 
 	for {
 		select {
 		case b := <-cw.ch:
+			// Without a deadline, a stalled viewer would block this write for minutes.
+			conn.SetWriteDeadline(time.Now().Add(flvWriteTimeout))
 			if _, err := w.Write(b); err != nil {
 				return
 			}
