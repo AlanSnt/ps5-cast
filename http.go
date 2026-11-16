@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,13 +45,15 @@ func StartHTTP(addr string, sink *Sink) (*http.Server, *net.TCPAddr, error) {
 // localHostsOnly refuses requests that were not addressed to localhost or to
 // an IP address. A DNS-rebinding page on another site can only reach this
 // server through its own domain name, so it never gets past this check.
+// A request without a Host cannot come from a browser and is served.
 func localHostsOnly(next http.Handler) http.Handler {
+	var refused sync.Map // host names already reported in the console
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		if h, _, err := net.SplitHostPort(r.Host); err == nil {
-			host = h
-		}
-		if !strings.EqualFold(host, "localhost") && net.ParseIP(strings.Trim(host, "[]")) == nil {
+		host := strings.TrimSuffix((&url.URL{Host: r.Host}).Hostname(), ".")
+		if host != "" && !strings.EqualFold(host, "localhost") && net.ParseIP(host) == nil {
+			if _, seen := refused.LoadOrStore(host, true); !seen {
+				log.Printf("HTTP: refused a request for %q — use localhost or the IP address instead of a name", host)
+			}
 			http.Error(w, "host not allowed: open this page with localhost or the IP address", http.StatusForbidden)
 			return
 		}

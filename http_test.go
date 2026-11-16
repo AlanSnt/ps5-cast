@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,14 +97,18 @@ func TestOnlyLocalhostAndIPHostsAreServed(t *testing.T) {
 	port := fmt.Sprint(bound.Port)
 
 	for host, want := range map[string]int{
-		"127.0.0.1:" + port:    http.StatusOK,
-		"localhost:" + port:    http.StatusOK,
-		"LOCALHOST:" + port:    http.StatusOK,
-		"192.168.1.20:" + port: http.StatusOK,
-		"192.168.1.20":         http.StatusOK,
-		"evil.example:" + port: http.StatusForbidden,
-		"evil.example":         http.StatusForbidden,
-		"my-pc.local:" + port:  http.StatusForbidden,
+		"127.0.0.1:" + port:      http.StatusOK,
+		"localhost:" + port:      http.StatusOK,
+		"LOCALHOST:" + port:      http.StatusOK,
+		"192.168.1.20:" + port:   http.StatusOK,
+		"192.168.1.20":           http.StatusOK,
+		"localhost.:" + port:     http.StatusOK,
+		"[::1]:" + port:          http.StatusOK,
+		"[::1]":                  http.StatusOK,
+		"evil.example:" + port:   http.StatusForbidden,
+		"evil.example":           http.StatusForbidden,
+		"my-pc.local:" + port:    http.StatusForbidden,
+		"localhost.evil.example": http.StatusForbidden,
 	} {
 		req, err := http.NewRequest(http.MethodGet, "http://"+bound.String()+"/status", nil)
 		if err != nil {
@@ -114,5 +123,60 @@ func TestOnlyLocalhostAndIPHostsAreServed(t *testing.T) {
 		if resp.StatusCode != want {
 			t.Errorf("Host %q: status = %d, want %d", host, resp.StatusCode, want)
 		}
+	}
+}
+
+// A browser always sends a Host header, so a request without one cannot come
+// from a rebinding page: old HTTP/1.0 clients keep working.
+func TestRequestWithoutHostIsServed(t *testing.T) {
+	srv, bound, err := StartHTTP("127.0.0.1:0", NewSink("none", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	conn, err := net.Dial("tcp", bound.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprint(conn, "GET /status HTTP/1.0\r\n\r\n")
+
+	status, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status, "200") {
+		t.Errorf("status line = %q, want 200", status)
+	}
+}
+
+// OBS and VLC never show the body of a 403: the console must say why.
+func TestRefusedHostIsLoggedOnce(t *testing.T) {
+	srv, bound, err := StartHTTP("127.0.0.1:0", NewSink("none", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	for range 3 {
+		req, err := http.NewRequest(http.MethodGet, "http://"+bound.String()+"/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "my-pc.test"
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+
+	if got := strings.Count(logged.String(), "my-pc.test"); got != 1 {
+		t.Errorf("refused host logged %d times, want once:\n%s", got, logged.String())
 	}
 }
