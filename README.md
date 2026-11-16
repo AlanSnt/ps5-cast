@@ -67,7 +67,7 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 |---|---|---|
 | `-ip` | auto | local IP of the PC |
 | `-upstream` | `1.1.1.1:53` | public DNS for all other queries |
-| `-spoof` | `*.contribute.live-video.net,live*.twitch.tv` | domains redirected to the PC |
+| `-spoof` | `*contribute.live-video.net,live*.twitch.tv` | domains redirected to the PC |
 | `-player` | `auto` | `mpv`, `ffplay` or `none` |
 | `-http` | `:8080` | web page and HTTP-FLV stream (empty = disabled) |
 | `-open` | `auto` | open the page at startup: `auto` (if no mpv), `always`, `never` |
@@ -85,7 +85,7 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
     sudo systemctl restart systemd-resolved
     ```
 - **Linux, "permission denied" on port 53**: the `setcap` command from the setup was not run (run it again after every update of the binary).
-- **The PS5 broadcasts but nothing arrives**: look at the `dns …` lines in the console. If a new ingest domain shows up, add it with `-spoof "*.contribute.live-video.net,live*.twitch.tv,new.domain"`.
+- **The PS5 broadcasts but nothing arrives**: look at the `dns …` lines in the console. If a new ingest domain shows up, add it with `-spoof "*contribute.live-video.net,live*.twitch.tv,new.domain"`.
 - **"attempts a TLS connection on :443" message**: the PS5 is trying RTMPS (encrypted), which cannot be intercepted. The domain logged just before must not be redirected.
 - **"host not allowed" (403) on the web page or in OBS**: open it with `localhost` or the PC's IP address. The console prints the refused name. A machine name such as `my-pc.local` is refused on purpose: it is what stops another website from reading the stream through DNS rebinding.
 - **Nothing at all**: check the PC's firewall (inbound ports 53 UDP/TCP and 1935 TCP; private profile on Windows).
