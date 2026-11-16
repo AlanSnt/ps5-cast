@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,7 +50,7 @@ type output struct {
 	cmd    *exec.Cmd
 	synced bool   // received a keyframe
 	base   uint32 // timestamp of the first keyframe → rebased to 0
-	broken bool
+	err    error  // first failed write: the output is dead
 }
 
 func NewSink(playerMode, recordPath string) *Sink {
@@ -64,14 +67,29 @@ func (s *Sink) BeginStream() bool {
 	s.meta, s.videoSeq, s.audioSeq = nil, nil, nil
 	s.openPlayerLocked()
 	if s.recordPath != "" && s.record == nil {
-		if f, err := os.Create(s.recordPath); err != nil {
+		if f, err := createRecord(s.recordPath); err != nil {
 			log.Printf("cannot record: %v", err)
 		} else {
 			s.record = newOutput(f, f, nil)
-			log.Printf("recording → %s", s.recordPath)
+			log.Printf("recording → %s", f.Name())
 		}
 	}
 	return true
+}
+
+// createRecord never overwrites an earlier recording: when path already exists
+// (a previous run, or the PS5 reconnecting) it creates game-2.flv, game-3.flv…
+func createRecord(path string) (*os.File, error) {
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	name := path
+	for n := 2; ; n++ {
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if !errors.Is(err, fs.ErrExist) {
+			return f, err
+		}
+		name = fmt.Sprintf("%s-%d%s", stem, n, ext)
+	}
 }
 
 func (s *Sink) EndStream() {
@@ -99,7 +117,7 @@ func (s *Sink) Reopen() {
 		log.Println("no stream in progress")
 		return
 	}
-	if s.player != nil && !s.player.broken {
+	if s.player != nil && s.player.err == nil {
 		return
 	}
 	s.closeOutput(&s.player)
@@ -154,17 +172,21 @@ func (s *Sink) Write(kind byte, ts uint32, data []byte) {
 	}
 
 	for _, o := range []*output{s.player, s.record} {
-		if o != nil && !o.broken {
+		if o != nil && o.err == nil {
 			s.writeTo(o, kind, ts, data)
 		}
 	}
-	if s.player != nil && s.player.broken {
+	if s.player != nil && s.player.err != nil {
 		log.Println("player closed or stalled — press Enter to reopen it")
 		s.closeOutput(&s.player)
 	}
+	if s.record != nil && s.record.err != nil {
+		log.Printf("recording stopped: %v", s.record.err)
+		s.closeOutput(&s.record)
+	}
 	for c := range s.clients {
 		s.writeTo(c, kind, ts, data)
-		if c.broken {
+		if c.err != nil {
 			s.dropClientLocked(c) // client too slow or gone: drop it
 		}
 	}
@@ -186,12 +208,12 @@ func (s *Sink) writeTo(o *output, kind byte, ts uint32, data []byte) {
 		rel = ts - o.base
 	}
 	if err := writeTag(o.w, kind, rel, data); err != nil {
-		o.broken = true
+		o.err = err
 		return
 	}
 	if kind == tagVideo {
 		if err := o.w.Flush(); err != nil { // one flush per frame: minimal latency
-			o.broken = true
+			o.err = err
 		}
 	}
 }
@@ -206,8 +228,8 @@ func (s *Sink) primeLocked(o *output) {
 			s.writeTo(o, t.kind, 0, t.data)
 		}
 	}
-	if o.w.Flush() != nil {
-		o.broken = true
+	if err := o.w.Flush(); err != nil {
+		o.err = err
 	}
 }
 
@@ -274,7 +296,7 @@ func newPlayerOutput(stdin io.WriteCloser, cmd *exec.Cmd) *output {
 func newOutput(w io.Writer, c io.Closer, cmd *exec.Cmd) *output {
 	o := &output{w: bufio.NewWriterSize(w, 256<<10), closer: c, cmd: cmd}
 	if _, err := o.w.Write(flvHeader); err != nil {
-		o.broken = true
+		o.err = err
 	}
 	return o
 }

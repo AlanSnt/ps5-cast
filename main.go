@@ -31,7 +31,7 @@ func main() {
 		upstream  = flag.String("upstream", "1.1.1.1:53", "public DNS that other queries are relayed to")
 		spoofFlag = flag.String("spoof", strings.Join(defaultSpoof, ","), "domain patterns redirected to this PC (comma-separated)")
 		player    = flag.String("player", "auto", "player: auto | mpv | ffplay | none")
-		record    = flag.String("record", "", "also record the stream to this .flv file")
+		record    = flag.String("record", "", "also record the stream to this .flv file (never overwrites: adds -2, -3…)")
 		verbose   = flag.Bool("v", false, "log every DNS query")
 		probe443  = flag.Bool("probe443", true, "listen on :443 to detect an RTMPS attempt (cannot be intercepted)")
 		httpAddr  = flag.String("http", ":8080", "address of the web page and HTTP-FLV stream (empty = disabled)")

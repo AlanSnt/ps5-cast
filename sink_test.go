@@ -1,7 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"io"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,5 +53,60 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	sink.mu.Unlock()
 	if !dropped {
 		t.Error("the stalled player is still attached, want it dropped")
+	}
+}
+
+func TestRecordingNeverOverwritesAnExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "game.flv")
+
+	for _, want := range []string{"game.flv", "game-2.flv", "game-3.flv"} {
+		f, err := createRecord(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := filepath.Base(f.Name()); got != want {
+			t.Errorf("recording file = %q, want %q", got, want)
+		}
+		if _, err := f.WriteString("stream"); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != "stream" {
+		t.Errorf("first recording = %q, want it left untouched", first)
+	}
+}
+
+// failingFile fails every write, like a full disk.
+type failingFile struct{}
+
+func (failingFile) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
+func (failingFile) Close() error               { return nil }
+
+func TestFailedRecordingIsReportedAndClosed(t *testing.T) {
+	sink := liveSink(t)
+	sink.mu.Lock()
+	sink.record = newOutput(failingFile{}, failingFile{}, nil)
+	sink.mu.Unlock()
+
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	sink.Write(tagVideo, 0, keyframe)
+
+	sink.mu.Lock()
+	closed := sink.record == nil
+	sink.mu.Unlock()
+	if !closed {
+		t.Error("the failed recording is still attached, want it closed")
+	}
+	if !strings.Contains(logged.String(), "no space left on device") {
+		t.Errorf("log = %q, want the write error reported", logged.String())
 	}
 }
