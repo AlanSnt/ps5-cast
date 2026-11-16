@@ -15,6 +15,10 @@ const (
 	downloadPage     = "https://github.com/AlanSnt/ps5-cast/releases/latest"
 )
 
+type latestRelease struct {
+	TagName string `json:"tag_name"`
+}
+
 // newerVersion returns the latest stable version when it is newer than the
 // running one, "" otherwise. A build without a version (a local "dev" build)
 // is not compared, and GitHub is not asked.
@@ -23,10 +27,8 @@ func newerVersion(ctx context.Context, running, releaseURL string) (string, erro
 	if !semver.IsValid(runningTag) {
 		return "", nil
 	}
-	var latest struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := getJSON(ctx, releaseURL, &latest); err != nil {
+	latest, err := getJSON[latestRelease](ctx, releaseURL)
+	if err != nil {
 		return "", err
 	}
 	if !semver.IsValid(latest.TagName) {
@@ -39,9 +41,14 @@ func newerVersion(ctx context.Context, running, releaseURL string) (string, erro
 }
 
 // announceNewerVersion tells in the console when a newer stable version can be
-// downloaded. It says nothing when the check fails: ps5cast works the same.
-func announceNewerVersion(ctx context.Context, running string) {
-	if latest, _ := newerVersion(ctx, running, latestReleaseURL); latest != "" {
+// downloaded. ps5cast works the same when the check fails, so the failure is
+// only reported in verbose mode.
+func announceNewerVersion(ctx context.Context, running string, verbose bool) {
+	latest, err := newerVersion(ctx, running, latestReleaseURL)
+	switch {
+	case err != nil && verbose:
+		log.Printf("cannot check for a newer version: %v", err)
+	case latest != "":
 		log.Printf("⬆ ps5cast %s is available (this is %s): %s", latest, running, downloadPage)
 	}
 }

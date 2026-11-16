@@ -9,22 +9,25 @@ import (
 	"time"
 )
 
-// getJSON decodes the JSON document at url into dst. Startup waits for it, so
-// it gives up after 3 s and reads at most 1 MB.
-func getJSON(ctx context.Context, url string, dst any) error {
+// getJSON fetches the JSON document at url and decodes it as a T. It gives up
+// after 3 s, the longest startup may wait for the ingest list, and reads at
+// most 1 MB.
+func getJSON[T any](ctx context.Context, url string) (T, error) {
+	var doc T
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return doc, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return doc, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %s", resp.Status)
+		return doc, fmt.Errorf("HTTP %s", resp.Status)
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(dst)
+	err = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc)
+	return doc, err
 }

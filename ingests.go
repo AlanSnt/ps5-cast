@@ -43,8 +43,8 @@ func spoofPatterns(ctx context.Context, spoofFlag, ingestsURL string) []string {
 
 // fetchIngestHosts returns the host of every RTMP ingest in the list.
 func fetchIngestHosts(ctx context.Context, ingestsURL string) ([]string, error) {
-	var list ingestList
-	if err := getJSON(ctx, ingestsURL, &list); err != nil {
+	list, err := getJSON[ingestList](ctx, ingestsURL)
+	if err != nil {
 		return nil, err
 	}
 	var hosts []string

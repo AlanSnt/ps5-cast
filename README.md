@@ -77,7 +77,7 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 | `-open` | `auto` | open the page at startup: `auto` (if no mpv), `always`, `never` |
 | `-record` | — | also record the stream to a `.flv` file; an existing file is never overwritten (`game-2.flv`, `game-3.flv`…) |
 | `-probe443` | `true` | listen on port 443 to detect an RTMPS attempt; pass `-probe443=false` if another program needs that port |
-| `-v` | off | log every DNS query |
+| `-v` | off | log every DNS query, and why the check for a newer version failed |
 
 ## Troubleshooting
 
