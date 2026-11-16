@@ -72,11 +72,12 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 | `-http` | `:8080` | web page and HTTP-FLV stream (empty = disabled) |
 | `-open` | `auto` | open the page at startup: `auto` (if no mpv), `always`, `never` |
 | `-record` | — | also record the stream to a `.flv` file |
+| `-probe443` | `true` | listen on port 443 to detect an RTMPS attempt; pass `-probe443=false` if another program needs that port |
 | `-v` | off | log every DNS query |
 
 ## Troubleshooting
 
-- **"port 53 already in use"**: another service holds the port. Stop it, or run ps5cast on another machine.
+- **"port 53 is already in use"**: another service holds the port. Stop it, or run ps5cast on another machine.
   - Windows: connection sharing, Docker or Hyper-V.
   - Linux: usually `systemd-resolved`. Set `DNSStubListener=no` in `/etc/systemd/resolved.conf`, then:
     ```sh
@@ -109,6 +110,6 @@ git push origin v0.2.0
 
 ## License
 
-[MIT](LICENSE). The embedded mpegts.js is Apache-2.0, see [`web/mpegts.LICENSE`](web/mpegts.LICENSE).
+[MIT](LICENSE). The embedded mpegts.js is Apache-2.0; its license text ships inside the binary and is served at `/mpegts.js.LICENSE.txt` (source: [`web/mpegts.js.LICENSE.txt`](web/mpegts.js.LICENSE.txt)).
 
 ps5cast is not affiliated with Sony Interactive Entertainment or Twitch.
