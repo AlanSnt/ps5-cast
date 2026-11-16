@@ -18,6 +18,7 @@ Automated scenarios run with `go test -race ./...`. End-to-end scenarios publish
 | STR-15 | Test | Twitch's ingest list holds a host the built-in domains do not cover, a wildcard host and an RTMPS-only one | Only the plain RTMP host is added to the redirected domains |
 | STR-16 | Test | Twitch's ingest list answers 500, is not JSON, or is empty | The built-in domains are used alone |
 | STR-17 | Test | `-spoof` is set | It is the exact list of redirected domains and Twitch's list is not fetched |
+| STR-18 | Test | An RTMP client connects, creates a stream and leaves without publishing | The console logs "left without sending a stream after: connect, createStream" |
 | STR-9 | End-to-end | Publish 5 s then 3 s with `-record rec.flv` | `rec.flv` (5 s) and `rec-2.flv` (3 s) are valid H.264/AAC; the player and `/live.flv` receive the stream; the stream key is not logged |
 | STR-10 | End-to-end | Publish 10 s at 60 fps to a player that never reads | "player closed or stalled" is logged after about 10 s, the publisher is not slowed and `/live.flv` still serves the stream |
 | STR-11 | Manual | Pause a real mpv window during a PS5 broadcast | The window closes after about 10 s; Enter reopens it |
