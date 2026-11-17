@@ -379,6 +379,10 @@ func (c *chanWriter) Close() error {
 func playerCommand(mode string) (name, path string, args []string) {
 	mpvArgs := []string{
 		"--profile=low-latency", "--no-cache", "--untimed",
+		// The profile decodes on a single CPU thread and --untimed shows every
+		// frame: on a busy machine (Discord capturing the window) the picture
+		// drifts behind the sound. Decode on the GPU and drop late frames.
+		"--hwdec=auto-safe", "--framedrop=decoder+vo",
 		"--demuxer-lavf-format=flv", "--demuxer-lavf-probesize=32768",
 		"--title=PS5", "--force-window=immediate", "--keep-open=no",
 		"--msg-level=all=warn", "--no-terminal", "-",

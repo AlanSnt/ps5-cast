@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -154,6 +155,25 @@ func TestLocalPlayerNameIsTheLogicalName(t *testing.T) {
 	for mode, want := range map[string]string{"auto": "ffplay", "ffplay": "ffplay", "mpv": "", "none": ""} {
 		if got := localPlayerName(mode); got != want {
 			t.Errorf("localPlayerName(%q) = %q, want %q", mode, got, want)
+		}
+	}
+}
+
+// While Discord captures the window the machine is busier: mpv must decode on
+// the GPU and be allowed to drop frames, or the picture falls behind the sound
+// and never catches up.
+func TestMpvKeepsThePictureInSyncOnABusyMachine(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "mpv"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	_, _, args := playerCommand("mpv")
+
+	for _, want := range []string{"--hwdec=auto-safe", "--framedrop=decoder+vo"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("mpv is started without %s: %v", want, args)
 		}
 	}
 }

@@ -21,7 +21,10 @@ Automated scenarios run with `go test -race ./...`. End-to-end scenarios publish
 | STR-18 | Test | An RTMP client connects, creates a stream and leaves without publishing | The console logs "closed without a stream after: connect, createStream" |
 | STR-19 | Test | An RTMP client sends `connect` with transaction ID 0, as the PS5 does | The `_result` it gets back carries transaction ID 0 |
 | STR-20 | Test | An RTMP client sends a command the library does not know, with an argument | The argument is not printed in the console |
+| STR-21 | Test | Read the arguments mpv is started with | They ask for GPU decoding (`--hwdec=auto-safe`) and allow late frames to be dropped (`--framedrop=decoder+vo`) |
 | STR-9 | End-to-end | Publish 5 s then 3 s with `-record rec.flv` | `rec.flv` (5 s) and `rec-2.flv` (3 s) are valid H.264/AAC; the player and `/live.flv` receive the stream; the stream key is not logged |
 | STR-10 | End-to-end | Publish 10 s at 60 fps to a player that never reads | "player closed or stalled" is logged after about 10 s, the publisher is not slowed and `/live.flv` still serves the stream |
+| STR-22 | End-to-end | Publish 6 s of 1080p60 to a build that opens the real mpv, with `MPV_HOME` set to a folder whose `mpv.conf` only sets `log-file` | The mpv log shows the two options on its command line and "Using hardware decoding"; the stream key is in neither log |
 | STR-11 | Manual | Pause a real mpv window during a PS5 broadcast | The window closes after about 10 s; Enter reopens it |
 | STR-12 | Manual | Real PS5 broadcast shown in the browser and in mpv | Video and sound play with low latency |
+| STR-23 | Manual | Share the mpv window in Discord during a real PS5 broadcast and open the mpv stats (Shift+I) | `A-V` stays close to 0 |
