@@ -150,6 +150,7 @@ func TestLocalPlayerNameIsTheLogicalName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+	t.Setenv("ProgramFiles", t.TempDir()) // no mpv installed by winget
 
 	for mode, want := range map[string]string{"auto": "ffplay", "ffplay": "ffplay", "mpv": "", "none": ""} {
 		if got := localPlayerName(mode); got != want {
