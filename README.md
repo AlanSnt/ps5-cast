@@ -11,7 +11,7 @@ The PS5 believes it is broadcasting to Twitch:
    The ingest domains are the built-in ones plus the list Twitch publishes, read at startup;
 3. the PS5 sends its RTMP stream (1080p60 H.264) to the PC on port 1935;
 4. ps5cast serves it, without re-encoding, to:
-   - **mpv**, if installed (a "PS5" window): the recommended way. It has the lowest latency, decodes on the GPU and drops late frames, so the picture stays in sync with the sound while Discord captures the window. ffplay is used when mpv is missing;
+   - **mpv**, if installed (a "PS5" window): the recommended way. It has the lowest latency and decodes on the GPU when it can, which keeps the picture in sync with the sound while Discord captures the window. ffplay is used when mpv is missing;
    - **the built-in web page** `http://localhost:8080` (Chrome/Edge, about 200 ms of buffer, nothing to install);
    - **OBS / VLC** through `http://<pc-ip>:8080/live.flv`.
 
