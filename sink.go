@@ -379,6 +379,8 @@ func (c *chanWriter) Close() error {
 func playerCommand(mode string) (name, path string, args []string) {
 	mpvArgs := []string{
 		"--profile=low-latency", "--no-cache", "--untimed",
+		// The profile's single CPU decoding thread drifts behind the sound on a busy machine.
+		"--hwdec=auto-safe", "--framedrop=decoder+vo",
 		"--demuxer-lavf-format=flv", "--demuxer-lavf-probesize=32768",
 		"--title=PS5", "--force-window=immediate", "--keep-open=no",
 		"--msg-level=all=warn", "--no-terminal", "-",

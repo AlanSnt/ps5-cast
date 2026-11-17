@@ -11,8 +11,8 @@ The PS5 believes it is broadcasting to Twitch:
    The ingest domains are the built-in ones plus the list Twitch publishes, read at startup;
 3. the PS5 sends its RTMP stream (1080p60 H.264) to the PC on port 1935;
 4. ps5cast serves it, without re-encoding, to:
+   - **mpv**, if installed (a "PS5" window): the recommended way. It has the lowest latency and decodes on the GPU when it can, which keeps the picture in sync with the sound while Discord captures the window. ffplay is used when mpv is missing;
    - **the built-in web page** `http://localhost:8080` (Chrome/Edge, about 200 ms of buffer, nothing to install);
-   - **mpv** or ffplay if installed (a "PS5" window, lowest latency);
    - **OBS / VLC** through `http://<pc-ip>:8080/live.flv`.
 
 Nothing is sent to Twitch. The stream key is never displayed or stored.
@@ -34,7 +34,7 @@ At startup, a released binary asks GitHub for the latest stable release and prin
 
 ## Setup
 
-1. *(Optional)* Install mpv: `winget install mpv` (Windows), `brew install mpv` (macOS) or your distribution's `mpv` package (Linux). You can also drop the mpv binary next to ps5cast. Without mpv, the web page opens on its own.
+1. *(Recommended)* Install mpv, the best way to watch and share the stream: `winget install mpv` (Windows), `brew install mpv` (macOS) or your distribution's `mpv` package (Linux). You can also drop the mpv binary next to ps5cast. Without mpv, the web page opens on its own.
 2. Start ps5cast:
    - **Windows**: double-click `ps5cast-windows-amd64.exe`. If SmartScreen blocks it: More info → Run anyway. When Windows asks, allow access on **private networks**.
    - **macOS**: in a terminal, from the download folder:
@@ -56,7 +56,7 @@ At startup, a released binary asks GitHub for the latest stable release and prin
    - Primary DNS: the IP printed by ps5cast
    - Secondary DNS: `1.1.1.1` (Internet keeps working when the PC is off)
 5. Start a Twitch broadcast with the Create button.
-6. The page (or the mpv window) shows the game. In Discord: Share Your Screen → the browser window or "PS5".
+6. The mpv window (or the page) shows the game. In Discord: Share Your Screen → the "PS5" window, or the browser window.
 
 Web page: click = enable sound (the browser starts muted), **f** fullscreen, **m** mute, **s** latency stats.
 Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
