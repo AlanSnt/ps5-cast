@@ -415,8 +415,7 @@ func localPlayerName(mode string) string {
 func findExe(name string) string {
 	if self, err := os.Executable(); err == nil {
 		for _, n := range []string{name + ".exe", name} {
-			p := filepath.Join(filepath.Dir(self), n)
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			if p := filepath.Join(filepath.Dir(self), n); isFile(p) {
 				return p
 			}
 		}
@@ -424,5 +423,16 @@ func findExe(name string) string {
 	if p, err := exec.LookPath(name); err == nil {
 		return p
 	}
+	// winget installs mpv there and leaves the PATH alone.
+	if dir := os.Getenv("ProgramFiles"); dir != "" {
+		if p := filepath.Join(dir, "MPV Player", name+".exe"); isFile(p) {
+			return p
+		}
+	}
 	return ""
+}
+
+func isFile(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }
