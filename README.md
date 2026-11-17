@@ -34,7 +34,7 @@ At startup, a released binary asks GitHub for the latest stable release and prin
 
 ## Setup
 
-1. *(Recommended)* Install mpv, the best way to watch and share the stream: `winget install mpv` (Windows), `brew install mpv` (macOS) or your distribution's `mpv` package (Linux). You can also drop the mpv binary next to ps5cast. Without mpv, the web page opens on its own.
+1. *(Recommended)* Install mpv, the best way to watch and share the stream: `winget install shinchiro.mpv` (Windows), `brew install mpv` (macOS) or your distribution's `mpv` package (Linux). You can also drop the mpv binary next to ps5cast. Without mpv, the web page opens on its own.
 2. Start ps5cast:
    - **Windows**: double-click `ps5cast-windows-amd64.exe`. If SmartScreen blocks it: More info → Run anyway. When Windows asks, allow access on **private networks**.
    - **macOS**: in a terminal, from the download folder:
