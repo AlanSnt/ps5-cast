@@ -150,10 +150,32 @@ func TestLocalPlayerNameIsTheLogicalName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+	t.Setenv("ProgramFiles", t.TempDir()) // no mpv installed by winget
 
 	for mode, want := range map[string]string{"auto": "ffplay", "ffplay": "ffplay", "mpv": "", "none": ""} {
 		if got := localPlayerName(mode); got != want {
 			t.Errorf("localPlayerName(%q) = %q, want %q", mode, got, want)
 		}
+	}
+}
+
+// winget installs mpv in "Program Files\MPV Player" and leaves the PATH alone.
+func TestMpvInstalledByWingetIsFound(t *testing.T) {
+	programFiles := t.TempDir()
+	mpv := filepath.Join(programFiles, "MPV Player", "mpv.exe")
+	if err := os.MkdirAll(filepath.Dir(mpv), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mpv, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ProgramFiles", programFiles)
+	t.Setenv("PATH", t.TempDir())
+
+	if got := findExe("mpv"); got != mpv {
+		t.Errorf("findExe(mpv) = %q, want %q", got, mpv)
+	}
+	if got := findExe("ffplay"); got != "" {
+		t.Errorf("findExe(ffplay) = %q, want none", got)
 	}
 }
