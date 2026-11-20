@@ -1,0 +1,154 @@
+package main
+
+import (
+	"bufio"
+	"errors"
+	"io"
+	"log"
+	"slices"
+	"sync"
+)
+
+const (
+	// maxLiveLag is how far behind the stream, in milliseconds, a live reader
+	// may be when a keyframe arrives. Further than that, it jumps to the keyframe.
+	maxLiveLag = 500
+	// maxQueueBytes bounds what is kept for a reader that stopped reading a
+	// stream without keyframes, where it has nowhere to jump to.
+	maxQueueBytes = 32 << 20
+)
+
+var errSlowClient = errors.New("client too slow")
+
+// liveQueue holds the tags a live reader (the local player or an HTTP viewer)
+// has not read yet, so a slow reader never slows the PS5's stream down.
+//
+// A reader plays at normal speed: what waits here is delay it would never make
+// up. So when a keyframe arrives and the reader is more than maxLiveLag
+// behind, the waiting frames are dropped and the reader resumes at that
+// keyframe. Later timestamps are moved back by what was dropped: the reader
+// sees a cut in the picture, not a gap in time.
+type liveQueue struct {
+	reader string // who reads, for the console
+
+	mu      sync.Mutex
+	tags    []flvTag
+	bytes   int
+	dropped uint32 // milliseconds dropped so far, taken off the later timestamps
+	reading bool   // the reader took a tag since the last drop
+
+	ready chan struct{} // holds a token when tags may be waiting
+	done  chan struct{}
+	once  sync.Once
+}
+
+func newLiveQueue(reader string) *liveQueue {
+	return &liveQueue{reader: reader, ready: make(chan struct{}, 1), done: make(chan struct{})}
+}
+
+// writeTag never blocks. It fails once the queue is closed or full: the reader
+// is then gone or stalled, and its output is dropped.
+func (q *liveQueue) writeTag(tag flvTag) error {
+	select {
+	case <-q.done:
+		return io.ErrClosedPipe
+	default:
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	tag.ts = msSince(q.dropped, tag.ts)
+	if tag.isKeyframe() {
+		lag := q.dropBacklog(tag.ts)
+		q.dropped += lag
+		tag.ts -= lag
+	}
+	if q.bytes+len(tag.data) > maxQueueBytes {
+		return errSlowClient
+	}
+	q.tags = append(q.tags, tag)
+	q.bytes += len(tag.data)
+	select {
+	case q.ready <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// dropBacklog drops the waiting frames when the oldest one is more than
+// maxLiveLag older than the keyframe arriving at keyframeTS, and returns how
+// many milliseconds of stream were dropped. The decoder configuration is kept:
+// the reader may not have read it yet.
+func (q *liveQueue) dropBacklog(keyframeTS uint32) uint32 {
+	oldest := slices.IndexFunc(q.tags, func(tag flvTag) bool { return !tag.isConfig() })
+	if oldest < 0 {
+		return 0
+	}
+	lag := msSince(q.tags[oldest].ts, keyframeTS)
+	if lag <= maxLiveLag {
+		return 0
+	}
+	if q.reading { // a reader that stopped reading altogether is reported once
+		log.Printf("%s was %.1f s behind: back to the live picture", q.reader, float64(lag)/1000)
+		q.reading = false
+	}
+	q.tags = slices.DeleteFunc(q.tags, func(tag flvTag) bool { return !tag.isConfig() })
+	q.bytes = 0
+	for _, tag := range q.tags {
+		q.bytes += len(tag.data)
+	}
+	return lag
+}
+
+// pop returns the oldest waiting tag, if any.
+func (q *liveQueue) pop() (flvTag, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.tags) == 0 {
+		return flvTag{}, false
+	}
+	tag := q.tags[0]
+	q.tags[0] = flvTag{} // lets the frame go once it is written
+	q.tags = q.tags[1:]
+	q.bytes -= len(tag.data)
+	q.reading = true
+	return tag, true
+}
+
+// copyTo writes the stream to w as FLV until the queue is closed, stop is
+// closed or a write fails. It takes one tag at a time, so that what a blocked
+// reader has not read stays in the queue, where it can be dropped.
+func (q *liveQueue) copyTo(w io.Writer, stop <-chan struct{}) error {
+	stream := bufio.NewWriterSize(w, 64<<10)
+	stream.Write(flvHeader) // a failure is reported by the first flush
+	for {
+		select {
+		case <-q.ready:
+		case <-q.done:
+			return nil
+		case <-stop:
+			return nil
+		}
+		for tag, ok := q.pop(); ok; tag, ok = q.pop() {
+			if err := encodeTag(stream, tag); err != nil {
+				return err
+			}
+		}
+		if err := stream.Flush(); err != nil { // the reader is up to date: minimal latency
+			return err
+		}
+	}
+}
+
+func (q *liveQueue) Close() error {
+	q.once.Do(func() { close(q.done) })
+	return nil
+}
+
+// msSince returns the milliseconds from origin to ts, 0 when ts is earlier.
+func msSince(origin, ts uint32) uint32 {
+	if ts < origin {
+		return 0
+	}
+	return ts - origin
+}

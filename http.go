@@ -70,13 +70,13 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
-	cw := newChanWriter(viewerQueue)
-	out, ok := sink.AddClient(cw, cw)
+	client := "HTTP viewer " + r.RemoteAddr
+	queue, ok := sink.AddClient(client)
 	if !ok {
 		http.Error(w, "no stream in progress", http.StatusServiceUnavailable)
 		return
 	}
-	defer sink.RemoveClient(out)
+	defer sink.RemoveClient(queue)
 
 	h := w.Header()
 	h.Set("Content-Type", "video/x-flv")
@@ -84,43 +84,26 @@ func serveFLV(w http.ResponseWriter, r *http.Request, sink *Sink) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	client := r.RemoteAddr
-	conn := http.NewResponseController(w)
-	log.Printf("+ HTTP viewer %s", client)
-	defer log.Printf("- HTTP viewer %s", client)
+	log.Printf("+ %s", client)
+	defer log.Printf("- %s", client)
 
-	// Each write gets its own deadline: without one, a stalled viewer would
-	// block the write for minutes.
-	write := func(b []byte) error {
-		conn.SetWriteDeadline(time.Now().Add(flvWriteTimeout))
-		_, err := w.Write(b)
-		return err
-	}
+	viewer := viewerWriter{w: w, conn: http.NewResponseController(w), flusher: flusher}
+	queue.copyTo(viewer, r.Context().Done())
+}
 
-	for {
-		select {
-		case b := <-cw.ch:
-			if write(b) != nil {
-				return
-			}
-			// Drain what is already queued before flushing (fewer syscalls).
-			for drained := false; !drained; {
-				select {
-				case b = <-cw.ch:
-					if write(b) != nil {
-						return
-					}
-				default:
-					drained = true
-				}
-			}
-			flusher.Flush()
-		case <-cw.done:
-			return
-		case <-r.Context().Done():
-			return
-		}
-	}
+// viewerWriter sends each write to the viewer at once, with its own deadline:
+// without one, a stalled viewer would block the write for minutes.
+type viewerWriter struct {
+	w       http.ResponseWriter
+	conn    *http.ResponseController
+	flusher http.Flusher
+}
+
+func (v viewerWriter) Write(b []byte) (int, error) {
+	v.conn.SetWriteDeadline(time.Now().Add(flvWriteTimeout))
+	n, err := v.w.Write(b)
+	v.flusher.Flush()
+	return n, err
 }
 
 func mustSub(fsys embed.FS, dir string) fs.FS {

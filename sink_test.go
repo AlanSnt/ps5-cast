@@ -25,6 +25,8 @@ func (p stalledPlayer) Write([]byte) (int, error) {
 
 func (p stalledPlayer) Close() error { return nil }
 
+// Without keyframes the player cannot be brought back to the live picture:
+// what it does not read is kept up to maxQueueBytes, then it is dropped.
 func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	sink := liveSink(t)
 	player := stalledPlayer{release: make(chan struct{})}
@@ -37,8 +39,10 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	written := make(chan struct{})
 	go func() {
 		defer close(written)
-		for ts := uint32(0); ts < 2*playerQueue; ts++ {
-			sink.Write(tagVideo, ts, keyframe)
+		sink.Write(tagVideo, 0, keyframe)
+		picture := append([]byte{0x27, 1, 0, 0, 0}, make([]byte, 1<<20)...)
+		for sent := 0; sent <= maxQueueBytes; sent += len(picture) {
+			sink.Write(tagVideo, 1, picture)
 		}
 	}()
 
@@ -91,7 +95,7 @@ func (failingFile) Close() error              { return nil }
 func TestFailedRecordingIsReportedAndClosed(t *testing.T) {
 	sink := liveSink(t)
 	sink.mu.Lock()
-	sink.record = newOutput(failingFile{}, failingFile{}, nil)
+	sink.record = newRecordOutput(failingFile{})
 	sink.mu.Unlock()
 
 	var logged bytes.Buffer
@@ -130,7 +134,7 @@ func (lateFailingFile) Close() error                { return errors.New("deferre
 func TestRecordingThatFailsOnCloseIsReported(t *testing.T) {
 	sink := liveSink(t)
 	sink.mu.Lock()
-	sink.record = newOutput(lateFailingFile{}, lateFailingFile{}, nil)
+	sink.record = newRecordOutput(lateFailingFile{})
 	sink.mu.Unlock()
 
 	var logged bytes.Buffer
