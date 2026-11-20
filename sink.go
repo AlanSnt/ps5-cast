@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -255,6 +256,14 @@ func (s *Sink) openPlayerLocked() {
 	if path == "" {
 		return // no local player: the web page does the job
 	}
+	if name == "mpv" {
+		script, err := installCatchupScript()
+		if err != nil {
+			log.Printf("mpv will be slower to catch up after a stall: %v", err)
+		} else {
+			args = append([]string{"--script=" + script}, args...)
+		}
+	}
 	cmd := exec.Command(path, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	stdin, err := cmd.StdinPipe()
@@ -354,10 +363,15 @@ func isAudioSeqHeader(d []byte) bool { return len(d) > 1 && d[0]>>4 == 10 && d[1
 // returns the player's name, the path of its executable and its arguments.
 func playerCommand(mode string) (name, path string, args []string) {
 	mpvArgs := []string{
-		"--profile=low-latency", "--no-cache", "--untimed",
+		"--profile=low-latency", "--no-cache",
 		// The profile's single CPU decoding thread drifts behind the sound on a busy machine.
+		// No --untimed: it turns off the dropping of late pictures, and a picture
+		// that cannot skip stays behind the sound once the catch-up plays faster.
 		"--hwdec=auto-safe", "--framedrop=decoder+vo",
 		"--demuxer-lavf-format=flv", "--demuxer-lavf-probesize=32768",
+		// What mpv may hold of the stream when it falls behind: the catch-up
+		// script sees it and speeds up. The rest waits in ps5cast, which drops it.
+		"--demuxer-readahead-secs=0.5",
 		"--title=PS5", "--force-window=immediate", "--keep-open=no",
 		"--msg-level=all=warn", "--no-terminal", "-",
 	}
@@ -377,6 +391,24 @@ func playerCommand(mode string) (name, path string, args []string) {
 		}
 	}
 	return "", "", nil
+}
+
+//go:embed mpv-catchup.lua
+var catchupScript []byte
+
+// installCatchupScript writes the script that keeps mpv at the live picture to
+// the user's cache and returns its path: mpv only loads a script from a file.
+func installCatchupScript() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cache, "ps5cast")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "mpv-catchup.lua")
+	return path, os.WriteFile(path, catchupScript, 0o600)
 }
 
 // localPlayerName returns "mpv" or "ffplay", or "" when no local player will be used.
