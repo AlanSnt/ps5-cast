@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +59,46 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	sink.mu.Unlock()
 	if !dropped {
 		t.Error("the stalled player is still attached, want it dropped")
+	}
+}
+
+// Enter is the way out when the window is open but shows a late or frozen
+// picture: the player is restarted, not only reopened once closed.
+func TestReopenRestartsARunningPlayer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in player is a shell script")
+	}
+	bin := t.TempDir()
+	standIn := "#!/bin/sh\nexec /bin/cat >/dev/null\n"
+	if err := os.WriteFile(filepath.Join(bin, "mpv"), []byte(standIn), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", t.TempDir()) // the catch-up script goes to the user's cache
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	sink := NewSink("mpv", "")
+	if !sink.BeginStream() {
+		t.Fatal("BeginStream refused a first stream")
+	}
+	t.Cleanup(sink.Close)
+	running := func() *exec.Cmd {
+		sink.mu.Lock()
+		defer sink.mu.Unlock()
+		if sink.player == nil {
+			return nil
+		}
+		return sink.player.cmd
+	}
+	first := running()
+	if first == nil {
+		t.Fatal("no player was started with the stream")
+	}
+
+	sink.Reopen()
+
+	if second := running(); second == nil || second == first {
+		t.Errorf("after Reopen the player is %p, want a new one replacing %p", second, first)
 	}
 }
 

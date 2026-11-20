@@ -141,15 +141,13 @@ func (s *Sink) Active() bool {
 	return s.active
 }
 
-// Reopen restarts the player if the stream is live and the window was closed.
+// Reopen restarts the player if the stream is live: it brings back a closed
+// window, and replaces one that shows a late or frozen picture.
 func (s *Sink) Reopen() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.active {
 		log.Println("no stream in progress")
-		return
-	}
-	if s.player != nil && s.player.err == nil {
 		return
 	}
 	s.closeOutput(&s.player)
