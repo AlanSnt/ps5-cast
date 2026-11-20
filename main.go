@@ -86,7 +86,7 @@ func main() {
 		openBrowser(localURL)
 	}
 
-	// Enter reopens the player if it was closed.
+	// Enter restarts the player: a closed window comes back, a late one is replaced.
 	go func() {
 		sc := bufio.NewScanner(os.Stdin)
 		for sc.Scan() {
@@ -105,7 +105,7 @@ func banner(ip net.IP, playerName, localURL, lanURL string) string {
 	switch {
 	case playerName != "":
 		view = fmt.Sprintf("  The \"PS5\" window (%s) opens: share it in Discord.\n", playerName)
-		keys = fmt.Sprintf("Enter = reopen the %s window · ", playerName)
+		keys = fmt.Sprintf("Enter = restart the %s window · ", playerName)
 	case localURL != "":
 		view = "  No local player: the stream plays in the browser.\n"
 	default:

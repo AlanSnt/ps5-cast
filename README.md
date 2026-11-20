@@ -11,7 +11,7 @@ The PS5 believes it is broadcasting to Twitch:
    The ingest domains are the built-in ones plus the list Twitch publishes, read at startup;
 3. the PS5 sends its RTMP stream (1080p60 H.264) to the PC on port 1935;
 4. ps5cast serves it, without re-encoding, to:
-   - **mpv**, if installed (a "PS5" window): the recommended way. It has the lowest latency and decodes on the GPU when it can, which keeps the picture in sync with the sound while Discord captures the window. ffplay is used when mpv is missing;
+   - **mpv**, if installed (a "PS5" window): the recommended way. It has the lowest latency and decodes on the GPU when it can, which keeps the picture in sync with the sound while Discord captures the window. When the window falls behind (busy PC, window being moved), it comes back to the live picture on its own: mpv plays slightly faster for a few seconds, and past about a second of delay the picture skips ahead. ffplay is used when mpv is missing;
    - **the built-in web page** `http://localhost:8080` (Chrome/Edge, about 200 ms of buffer, nothing to install);
    - **OBS / VLC** through `http://<pc-ip>:8080/live.flv`.
 
@@ -59,7 +59,7 @@ At startup, a released binary asks GitHub for the latest stable release and prin
 6. The mpv window (or the page) shows the game. In Discord: Share Your Screen → the "PS5" window, or the browser window.
 
 Web page: click = enable sound (the browser starts muted), **f** fullscreen, **m** mute, **s** latency stats.
-Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
+Console: **Enter** restarts the mpv window, **Ctrl+C** quits.
 
 ### OBS / VLC
 - OBS: Sources → **Media Source** → uncheck "Local File" → Input: `http://<pc-ip>:8080/live.flv`.
@@ -91,6 +91,8 @@ Console: **Enter** reopens the mpv window, **Ctrl+C** quits.
 - **Linux, "permission denied" on port 53**: the `setcap` command from the setup was not run (run it again after every update of the binary).
 - **The PS5 broadcasts but nothing arrives**: look at the `dns …` lines in the console. If a new ingest domain shows up, add it with `-spoof "*.contribute.live-video.net,*.global-contribute.live-video.net,live*.twitch.tv,new.domain"`; a `-spoof` list replaces the automatic one, Twitch's published list included. A "Twitch ingest list unavailable" line at startup means only the built-in domains are redirected.
 - **"closed without a stream after: …" message**: a device reached the PC over RTMP but no stream followed. The list is how far the exchange went (commands the RTMP library does not know are not listed); include that line when reporting the problem, it never contains the stream key. A "refused, another one is already in progress" line just before means ps5cast itself turned the stream down.
+- **"the player was 2.3 s behind: back to the live picture" message**: the window could not keep up for a moment, so ps5cast skipped the late pictures instead of leaving it behind for good. Now and then it is harmless. When it comes back every ten seconds, the PC struggles to play the stream: close what keeps it busy, or use the web page.
+- **The window is frozen, or stays late**: press **Enter** in the console. The window is restarted, so share it again in Discord. The console says "the player has stopped reading the stream (paused or frozen)" when mpv takes nothing anymore.
 - **"attempts a TLS connection on :443" message**: the PS5 is trying RTMPS (encrypted), which cannot be intercepted. The domain logged just before must not be redirected: pass `-spoof` with the list of domains without that one.
 - **"host not allowed" (403) on the web page or in OBS**: open it with `localhost` or the PC's IP address. The console prints the refused name. A machine name such as `my-pc.local` is refused on purpose: it is what stops another website from reading the stream through DNS rebinding.
 - **Nothing at all**: check the PC's firewall (inbound ports 53 UDP/TCP and 1935 TCP; private profile on Windows).

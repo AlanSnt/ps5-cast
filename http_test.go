@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -178,5 +179,39 @@ func TestRefusedHostIsLoggedOnce(t *testing.T) {
 
 	if got := strings.Count(logged.String(), "my-pc.test"); got != 1 {
 		t.Errorf("refused host logged %d times, want once:\n%s", got, logged.String())
+	}
+}
+
+// A viewer that joins mid-stream gets a complete FLV stream: the file header,
+// the decoder configuration received before it joined, then the next keyframe
+// with its timestamp brought back to zero.
+func TestViewerJoiningMidStreamGetsADecodableStream(t *testing.T) {
+	sink := liveSink(t)
+	srv := flvServer(t, sink)
+	config := []byte{0x17, 0, 0, 0, 0, 0xC0}
+	sink.Write(tagVideo, 0, config)
+	sink.Write(tagVideo, 5000, keyframe)
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	sink.Write(tagVideo, 7000, []byte{0x27, 1, 0, 0, 0, 0xAA}) // not a keyframe: skipped
+	sink.Write(tagVideo, 8000, keyframe)
+
+	var want bytes.Buffer
+	stream := bufio.NewWriter(&want)
+	stream.Write(flvHeader)
+	encodeTag(stream, flvTag{tagVideo, 0, config})
+	encodeTag(stream, flvTag{tagVideo, 0, keyframe})
+	stream.Flush()
+
+	got := make([]byte, want.Len())
+	if _, err := io.ReadFull(resp.Body, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want.Bytes()) {
+		t.Errorf("the viewer got %d bytes that are not the header, the configuration and the keyframe", len(got))
 	}
 }

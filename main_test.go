@@ -62,7 +62,7 @@ func TestBannerDescribesWhatWillDisplayTheStream(t *testing.T) {
 		want, mustNotMentionIt []string
 	}{
 		{"ffplay", "ffplay", local, lan,
-			[]string{`window (ffplay) opens`, "Enter = reopen the ffplay window", "(or " + lan + " from another device)", lan + "/live.flv"},
+			[]string{`window (ffplay) opens`, "Enter = restart the ffplay window", "(or " + lan + " from another device)", lan + "/live.flv"},
 			[]string{"mpv"}},
 		{"browser only", "", local, lan,
 			[]string{"the stream plays in the browser", "Browser   : " + local},

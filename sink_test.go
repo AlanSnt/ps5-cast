@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,8 @@ func (p stalledPlayer) Write([]byte) (int, error) {
 
 func (p stalledPlayer) Close() error { return nil }
 
+// Without keyframes the player cannot be brought back to the live picture:
+// what it does not read is kept up to maxQueueBytes, then it is dropped.
 func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	sink := liveSink(t)
 	player := stalledPlayer{release: make(chan struct{})}
@@ -37,8 +41,11 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	written := make(chan struct{})
 	go func() {
 		defer close(written)
-		for ts := uint32(0); ts < 2*playerQueue; ts++ {
-			sink.Write(tagVideo, ts, keyframe)
+		sink.Write(tagVideo, 0, keyframe)
+		picture := append([]byte{0x27, 1, 0, 0, 0}, make([]byte, 1<<20)...)
+		// Twice the limit: the player may have taken a few pictures before it stalled.
+		for sent := 0; sent <= 2*maxQueueBytes; sent += len(picture) {
+			sink.Write(tagVideo, 1, picture)
 		}
 	}()
 
@@ -53,6 +60,70 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	sink.mu.Unlock()
 	if !dropped {
 		t.Error("the stalled player is still attached, want it dropped")
+	}
+}
+
+// streamWithStandInPlayer starts a stream shown by a stand-in mpv and returns
+// the sink with a way to tell which player process is running.
+func streamWithStandInPlayer(t *testing.T) (*Sink, func() *exec.Cmd) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in player is a shell script")
+	}
+	bin := t.TempDir()
+	standIn := "#!/bin/sh\nexec /bin/cat >/dev/null\n"
+	if err := os.WriteFile(filepath.Join(bin, "mpv"), []byte(standIn), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", t.TempDir()) // the catch-up script goes to the user's cache
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	sink := NewSink("mpv", "")
+	if !sink.BeginStream() {
+		t.Fatal("BeginStream refused a first stream")
+	}
+	t.Cleanup(sink.Close)
+	running := func() *exec.Cmd {
+		sink.mu.Lock()
+		defer sink.mu.Unlock()
+		if sink.player == nil {
+			return nil
+		}
+		return sink.player.cmd
+	}
+	if running() == nil {
+		t.Fatal("no player was started with the stream")
+	}
+	return sink, running
+}
+
+// Enter is the way out when the window is open but shows a late or frozen
+// picture: the player is restarted, not only reopened once closed.
+func TestReopenRestartsARunningPlayer(t *testing.T) {
+	previous := restartGuard
+	restartGuard = 0
+	t.Cleanup(func() { restartGuard = previous })
+	sink, running := streamWithStandInPlayer(t)
+	first := running()
+
+	sink.Reopen()
+
+	if second := running(); second == nil || second == first {
+		t.Errorf("after Reopen the player is %p, want a new one replacing %p", second, first)
+	}
+}
+
+// Enter pressed twice, or held, must not close the window that the first
+// press just opened.
+func TestReopenLeavesAPlayerThatJustStarted(t *testing.T) {
+	sink, running := streamWithStandInPlayer(t)
+	first := running()
+
+	sink.Reopen()
+
+	if second := running(); second != first {
+		t.Errorf("Reopen replaced a player started a moment ago (%p, was %p)", second, first)
 	}
 }
 
@@ -91,7 +162,7 @@ func (failingFile) Close() error              { return nil }
 func TestFailedRecordingIsReportedAndClosed(t *testing.T) {
 	sink := liveSink(t)
 	sink.mu.Lock()
-	sink.record = newOutput(failingFile{}, failingFile{}, nil)
+	sink.record = newRecordOutput(failingFile{})
 	sink.mu.Unlock()
 
 	var logged bytes.Buffer
@@ -130,7 +201,7 @@ func (lateFailingFile) Close() error                { return errors.New("deferre
 func TestRecordingThatFailsOnCloseIsReported(t *testing.T) {
 	sink := liveSink(t)
 	sink.mu.Lock()
-	sink.record = newOutput(lateFailingFile{}, lateFailingFile{}, nil)
+	sink.record = newRecordOutput(lateFailingFile{})
 	sink.mu.Unlock()
 
 	var logged bytes.Buffer
