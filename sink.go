@@ -69,9 +69,10 @@ func (t flvTag) isKeyframe() bool {
 type output struct {
 	dst    tagWriter
 	cmd    *exec.Cmd
-	synced bool   // received a keyframe
-	base   uint32 // timestamp of the first keyframe → rebased to 0
-	err    error  // first failed write: the output is dead
+	opened time.Time // when the player was started
+	synced bool      // received a keyframe
+	base   uint32    // timestamp of the first keyframe → rebased to 0
+	err    error     // first failed write: the output is dead
 }
 
 // tagWriter is where an output sends its tags: the recording, or the queue of
@@ -142,6 +143,9 @@ func (s *Sink) Active() bool {
 	return s.active
 }
 
+// restartGuard is how long a player that just started is left alone.
+var restartGuard = 2 * time.Second
+
 // Reopen restarts the player if the stream is live: it brings back a closed
 // window, and replaces one that shows a late or frozen picture.
 func (s *Sink) Reopen() {
@@ -150,6 +154,9 @@ func (s *Sink) Reopen() {
 	if !s.active {
 		log.Println("no stream in progress")
 		return
+	}
+	if s.player != nil && time.Since(s.player.opened) < restartGuard {
+		return // Enter pressed twice: keep the window the first press opened
 	}
 	s.closeOutput(&s.player)
 	s.openPlayerLocked()
@@ -304,7 +311,7 @@ func newPlayerOutput(stdin io.WriteCloser, cmd *exec.Cmd) *output {
 		defer queue.Close() // window closed: the next sink write fails and drops the output
 		queue.copyTo(stdin, nil)
 	}()
-	return &output{dst: queue, cmd: cmd}
+	return &output{dst: queue, cmd: cmd, opened: time.Now()}
 }
 
 // recordFile is the recording: every tag is written, none is ever dropped.

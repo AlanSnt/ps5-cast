@@ -43,7 +43,8 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 		defer close(written)
 		sink.Write(tagVideo, 0, keyframe)
 		picture := append([]byte{0x27, 1, 0, 0, 0}, make([]byte, 1<<20)...)
-		for sent := 0; sent <= maxQueueBytes; sent += len(picture) {
+		// Twice the limit: the player may have taken a few pictures before it stalled.
+		for sent := 0; sent <= 2*maxQueueBytes; sent += len(picture) {
 			sink.Write(tagVideo, 1, picture)
 		}
 	}()
@@ -62,9 +63,10 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	}
 }
 
-// Enter is the way out when the window is open but shows a late or frozen
-// picture: the player is restarted, not only reopened once closed.
-func TestReopenRestartsARunningPlayer(t *testing.T) {
+// streamWithStandInPlayer starts a stream shown by a stand-in mpv and returns
+// the sink with a way to tell which player process is running.
+func streamWithStandInPlayer(t *testing.T) (*Sink, func() *exec.Cmd) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the stand-in player is a shell script")
 	}
@@ -90,15 +92,38 @@ func TestReopenRestartsARunningPlayer(t *testing.T) {
 		}
 		return sink.player.cmd
 	}
-	first := running()
-	if first == nil {
+	if running() == nil {
 		t.Fatal("no player was started with the stream")
 	}
+	return sink, running
+}
+
+// Enter is the way out when the window is open but shows a late or frozen
+// picture: the player is restarted, not only reopened once closed.
+func TestReopenRestartsARunningPlayer(t *testing.T) {
+	previous := restartGuard
+	restartGuard = 0
+	t.Cleanup(func() { restartGuard = previous })
+	sink, running := streamWithStandInPlayer(t)
+	first := running()
 
 	sink.Reopen()
 
 	if second := running(); second == nil || second == first {
 		t.Errorf("after Reopen the player is %p, want a new one replacing %p", second, first)
+	}
+}
+
+// Enter pressed twice, or held, must not close the window that the first
+// press just opened.
+func TestReopenLeavesAPlayerThatJustStarted(t *testing.T) {
+	sink, running := streamWithStandInPlayer(t)
+	first := running()
+
+	sink.Reopen()
+
+	if second := running(); second != first {
+		t.Errorf("Reopen replaced a player started a moment ago (%p, was %p)", second, first)
 	}
 }
 

@@ -104,6 +104,19 @@ func TestLiveReaderAfterAStall(t *testing.T) {
 			},
 		},
 		{
+			name: "a decoder configuration sent while it was behind moves back with the keyframe",
+			stream: []flvTag{
+				{tagVideo, 1000, picture(key, 1)},
+				{tagVideo, 3000, videoConfig},
+				{tagVideo, 4000, picture(key, 2)},
+			},
+			want: []flvTag{
+				{tagVideo, 0, videoConfig},
+				{tagVideo, 0, videoConfig},
+				{tagVideo, 0, picture(key, 2)},
+			},
+		},
+		{
 			name: "within maxLiveLag, it loses nothing",
 			stream: []flvTag{
 				{tagVideo, 1000, picture(key, 1)},
@@ -137,23 +150,56 @@ func TestLiveReaderAfterAStall(t *testing.T) {
 	}
 }
 
-// The console says why the picture jumped. A reader that reads nothing at all
-// (a paused window) would repeat it at every keyframe: it is told once.
-func TestReaderBroughtBackToLiveIsReportedOnce(t *testing.T) {
-	sink := liveSink(t)
-	reader, _ := sink.AddClient("the window")
+// consoleDuring returns what the console receives until the test ends.
+func consoleDuring(t *testing.T) *bytes.Buffer {
+	t.Helper()
 	var logged bytes.Buffer
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	return &logged
+}
+
+// The console says why the picture jumped. When the reader then reads nothing
+// at all (a paused or frozen window), it says so once and stays quiet.
+func TestReaderThatStopsReadingIsReportedOnce(t *testing.T) {
+	sink := liveSink(t)
+	reader, _ := sink.AddClient("the window")
+	logged := consoleDuring(t)
 
 	sink.Write(tagVideo, 0, picture(true, 1))
 	reader.pop()
-	sink.Write(tagVideo, 100, picture(false, 2))
-	sink.Write(tagVideo, 2100, picture(true, 3))
-	sink.Write(tagVideo, 4100, picture(true, 4))
+	for ts := uint32(2000); ts <= 8000; ts += 2000 {
+		sink.Write(tagVideo, ts, picture(true, 2))
+	}
 
-	if got := strings.Count(logged.String(), "the window was 2.0 s behind"); got != 1 {
-		t.Errorf("the jump was reported %d times, want once:\n%s", got, logged.String())
+	for message, want := range map[string]int{
+		"the window was 2.0 s behind: back to the live picture": 1,
+		"the window has stopped reading":                        1,
+	} {
+		if got := strings.Count(logged.String(), message); got != want {
+			t.Errorf("%q logged %d times, want %d:\n%s", message, got, want, logged.String())
+		}
+	}
+}
+
+// A reader that never keeps up (weak Wi-Fi, slow PC) is brought back at every
+// keyframe: the console must not get a line each time.
+func TestReaderOftenBehindDoesNotFloodTheConsole(t *testing.T) {
+	sink := liveSink(t)
+	reader, _ := sink.AddClient("the window")
+	logged := consoleDuring(t)
+
+	for ts := uint32(0); ts <= 8000; ts += 2000 {
+		sink.Write(tagVideo, ts, picture(true, 1))
+		sink.Write(tagVideo, ts+100, picture(false, 2))
+		reader.pop() // reads, but never the whole of it
+	}
+
+	if got := strings.Count(logged.String(), "behind"); got != 1 {
+		t.Errorf("the reader was reported behind %d times in a row, want once:\n%s", got, logged.String())
+	}
+	if strings.Contains(logged.String(), "stopped reading") {
+		t.Errorf("a reader that still reads was reported as stopped:\n%s", logged.String())
 	}
 }
 

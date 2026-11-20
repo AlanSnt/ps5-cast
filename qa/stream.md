@@ -22,10 +22,11 @@ Automated scenarios run with `go test -race ./...`. End-to-end scenarios publish
 | STR-19 | Test | An RTMP client sends `connect` with transaction ID 0, as the PS5 does | The `_result` it gets back carries transaction ID 0 |
 | STR-20 | Test | An RTMP client sends a command the library does not know, with an argument | The argument is not printed in the console |
 | STR-23 | Test | mpv is in `Program Files\MPV Player`, where winget installs it, and not on the `PATH` | ps5cast finds it |
-| STR-24 | Test | A reader (player or HTTP viewer) reads nothing while 2 s of stream arrive, then a keyframe | It resumes at that keyframe: the late pictures are dropped, the decoder configuration is kept, the timestamps have no gap |
+| STR-24 | Test | A reader (player or HTTP viewer) reads nothing while 2 s of stream arrive, then a keyframe | It resumes at that keyframe: the late pictures are dropped, the decoder configuration is kept, the timestamps have no gap and never go back |
 | STR-25 | Test | A reader is late by 500 ms or less at a keyframe, or late without a keyframe, or keeps up | Nothing is dropped |
-| STR-26 | Test | A reader is brought back to the live picture, then reads nothing at all | The console says once "was 2.0 s behind: back to the live picture" |
-| STR-27 | Test | Press Enter while the player window is open | The player is restarted |
+| STR-26 | Test | A reader is brought back to the live picture, then reads nothing at all | The console says once "was 2.0 s behind: back to the live picture", then once "has stopped reading the stream" |
+| STR-31 | Test | A reader that still reads is behind at every keyframe | The console says "was … behind" once, not at every keyframe |
+| STR-27 | Test | Press Enter while the player window is open, then again right away | The player is restarted once: the second press leaves the new window alone |
 | STR-28 | Test | An HTTP viewer joins mid-stream | It gets the FLV header, the decoder configuration, then the next keyframe at timestamp 0 |
 | STR-9 | End-to-end | Publish 5 s then 3 s with `-record rec.flv` | `rec.flv` (5 s) and `rec-2.flv` (3 s) are valid H.264/AAC; the player and `/live.flv` receive the stream; the stream key is not logged |
 | STR-10 | End-to-end | Publish 26 s of 1080p60 to the real mpv, started by a stand-in that adds `--vo=null --ao=null`; freeze mpv for 3 s (`kill -STOP`, then `kill -CONT`) | The console logs "the player was … behind"; mpv plays at speed 1.1 for a few seconds, then 1; in the end it holds less than 0.1 s of stream (`demuxer-cache-duration`); the publisher is not slowed |

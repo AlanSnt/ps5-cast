@@ -7,6 +7,7 @@ import (
 	"log"
 	"slices"
 	"sync"
+	"time"
 )
 
 const (
@@ -16,6 +17,19 @@ const (
 	// maxQueueBytes bounds what is kept for a reader that stopped reading a
 	// stream without keyframes, where it has nowhere to jump to.
 	maxQueueBytes = 32 << 20
+	// behindReportEvery spaces the console lines about a reader that keeps
+	// falling behind: it is brought back at every keyframe.
+	behindReportEvery = 10 * time.Second
+)
+
+// readerState is what the queue knows of its reader, to tell the console once.
+type readerState int
+
+const (
+	notStarted readerState = iota // has read nothing yet: a player takes a moment to open
+	reading                       // took a tag since the last drop
+	behind                        // had its backlog dropped, and has read nothing since
+	stopped                       // had it dropped again: paused, frozen or gone
 )
 
 var errSlowClient = errors.New("client too slow")
@@ -35,7 +49,9 @@ type liveQueue struct {
 	tags    []flvTag
 	bytes   int
 	dropped uint32 // milliseconds dropped so far, taken off the later timestamps
-	reading bool   // the reader took a tag since the last drop
+
+	state          readerState
+	reportedBehind time.Time
 
 	ready chan struct{} // holds a token when tags may be waiting
 	done  chan struct{}
@@ -88,16 +104,32 @@ func (q *liveQueue) dropBacklog(keyframeTS uint32) uint32 {
 	if lag <= maxLiveLag {
 		return 0
 	}
-	if q.reading { // a reader that stopped reading altogether is reported once
-		log.Printf("%s was %.1f s behind: back to the live picture", q.reader, float64(lag)/1000)
-		q.reading = false
-	}
+	q.report(lag)
+	resume := q.tags[oldest].ts // the timestamp the keyframe takes
 	q.tags = slices.DeleteFunc(q.tags, func(tag flvTag) bool { return !tag.isConfig() })
 	q.bytes = 0
-	for _, tag := range q.tags {
-		q.bytes += len(tag.data)
+	for i := range q.tags {
+		q.tags[i].ts = min(q.tags[i].ts, resume) // timestamps never go back
+		q.bytes += len(q.tags[i].data)
 	}
 	return lag
+}
+
+// report tells the console that the reader's backlog was dropped, without
+// flooding it: a reader often behind is reported every behindReportEvery, and
+// one that reads nothing at all is reported once.
+func (q *liveQueue) report(lag uint32) {
+	switch q.state {
+	case reading:
+		if time.Since(q.reportedBehind) >= behindReportEvery {
+			log.Printf("%s was %.1f s behind: back to the live picture", q.reader, float64(lag)/1000)
+			q.reportedBehind = time.Now()
+		}
+		q.state = behind
+	case behind:
+		log.Printf("%s has stopped reading the stream (paused or frozen)", q.reader)
+		q.state = stopped
+	}
 }
 
 // pop returns the oldest waiting tag, if any.
@@ -111,7 +143,7 @@ func (q *liveQueue) pop() (flvTag, bool) {
 	q.tags[0] = flvTag{} // lets the frame go once it is written
 	q.tags = q.tags[1:]
 	q.bytes -= len(tag.data)
-	q.reading = true
+	q.state = reading
 	return tag, true
 }
 
