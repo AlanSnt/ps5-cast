@@ -11,6 +11,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -37,6 +38,7 @@ func main() {
 		probe443  = flag.Bool("probe443", true, "listen on :443 to detect an RTMPS attempt (cannot be intercepted)")
 		httpAddr  = flag.String("http", ":8080", "address of the web page and HTTP-FLV stream (empty = disabled)")
 		openFlag  = flag.String("open", "auto", "open the page in the browser: auto (if no mpv/ffplay) | always | never")
+		debugFlag = flag.Bool("debug", false, "write the debug log from the start (d + Enter turns it on or off while ps5cast runs)")
 	)
 	flag.Parse()
 	log.SetFlags(log.Ltime)
@@ -45,11 +47,25 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	playerName := localPlayerName(*player)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	nic := interfaceOf(ip)
+	debug := newDebugLog(".", time.Now(), []string{
+		fmt.Sprintf("ps5cast %s on %s", version, describeMachine()),
+		fmt.Sprintf("local IP %s on interface %q, player %q, options: %s", ip, nic, playerName, optionsSet()),
+		"the figures of the programs (procs) are shares of one CPU core",
+	})
+	defer debug.Stop()
+	log.SetOutput(io.MultiWriter(os.Stderr, debug.Writer("log")))
+	if *debugFlag {
+		debug.Toggle()
+	}
+
 	sink := NewSink(*player, *record)
+	sink.playerLog = debug.Writer("mpv")
 	defer sink.Close()
 
 	dnsSrv, err := StartDNS(ip, *upstream, spoofPatterns(ctx, *spoofFlag, twitchIngestsURL), *verbose)
@@ -78,19 +94,19 @@ func main() {
 		localURL, lanURL = httpURLs(bound, ip)
 	}
 
-	playerName := localPlayerName(*player)
 	fmt.Print(banner(ip, playerName, localURL, lanURL))
 	go announceNewerVersion(ctx, version, *verbose)
+	go debug.measure(ctx, sink, &machine{nic: nic})
+	go debug.probe(ctx, sink, *upstream)
 
 	if localURL != "" && (*openFlag == "always" || (*openFlag == "auto" && playerName == "")) {
 		openBrowser(localURL)
 	}
 
-	// Enter restarts the player: a closed window comes back, a late one is replaced.
 	go func() {
 		sc := bufio.NewScanner(os.Stdin)
 		for sc.Scan() {
-			sink.Reopen()
+			obey(sc.Text(), sink, debug)
 		}
 	}()
 
@@ -105,7 +121,7 @@ func banner(ip net.IP, playerName, localURL, lanURL string) string {
 	switch {
 	case playerName != "":
 		view = fmt.Sprintf("  The \"PS5\" window (%s) opens: share it in Discord.\n", playerName)
-		keys = fmt.Sprintf("Enter = restart the %s window · ", playerName)
+		keys = fmt.Sprintf("Enter = restart the %s window\n  ", playerName)
 	case localURL != "":
 		view = "  No local player: the stream plays in the browser.\n"
 	default:
@@ -133,10 +149,21 @@ func banner(ip net.IP, playerName, localURL, lanURL string) string {
 
   Then start a Twitch broadcast from the PS5 (Create button).
 %s
-  %sCtrl+C = quit
+  %sd + Enter = debug log on/off (to report a lag) · Ctrl+C = quit
   ─────────────────────────────────────────────────────────
 
 `, version, ip, view, keys)
+}
+
+func optionsSet() string {
+	var set []string
+	flag.Visit(func(option *flag.Flag) {
+		set = append(set, fmt.Sprintf("-%s=%s", option.Name, option.Value))
+	})
+	if len(set) == 0 {
+		return "none"
+	}
+	return strings.Join(set, " ")
 }
 
 // localIP returns the IPv4 address the PS5 must use as DNS: the -ip flag when

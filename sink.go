@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	_ "embed"
+	"embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,12 +33,14 @@ var flvHeader = []byte{'F', 'L', 'V', 1, 0x05, 0, 0, 0, 9, 0, 0, 0, 0}
 type Sink struct {
 	playerMode string
 	recordPath string
+	playerLog  io.Writer // what mpv prints; nil discards it
 
 	mu       sync.Mutex
 	active   bool
 	meta     []byte
 	videoSeq []byte
 	audioSeq []byte
+	stats    streamStats
 
 	player  *output
 	record  *output
@@ -94,6 +97,7 @@ func (s *Sink) BeginStream() bool {
 	}
 	s.active = true
 	s.meta, s.videoSeq, s.audioSeq = nil, nil, nil
+	s.stats = streamStats{}
 	s.openPlayerLocked()
 	if s.recordPath != "" && s.record == nil {
 		if f, err := createRecord(s.recordPath); err != nil {
@@ -167,6 +171,34 @@ func (s *Sink) Reopen() {
 
 func (s *Sink) Close() { s.EndStream() }
 
+func (s *Sink) Report(now time.Time, elapsed time.Duration) (streamReport, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.active {
+		return streamReport{}, false
+	}
+	report := streamReport{arrival: s.stats.report(now, elapsed)}
+	for queue := range s.clients {
+		report.readers = append(report.readers, queue.describe())
+	}
+	slices.Sort(report.readers) // a map has no order: keep the viewers in the same one
+	if s.player != nil {
+		if queue, ok := s.player.dst.(*liveQueue); ok {
+			report.readers = append([]string{queue.describe()}, report.readers...)
+		}
+	}
+	return report, true
+}
+
+func (s *Sink) PlayerPID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.player == nil || s.player.cmd == nil || s.player.cmd.Process == nil {
+		return 0
+	}
+	return s.player.cmd.Process.Pid
+}
+
 // AddClient attaches an extra reader (HTTP client) to the current stream and
 // returns the queue it reads the stream from. The name is for the console.
 func (s *Sink) AddClient(name string) (*liveQueue, bool) {
@@ -200,6 +232,7 @@ func (s *Sink) Write(kind byte, ts uint32, data []byte) {
 	tag := flvTag{kind, ts, data}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stats.add(tag, time.Now())
 
 	switch {
 	case kind == tagScript:
@@ -263,16 +296,16 @@ func (s *Sink) openPlayerLocked() {
 	if path == "" {
 		return // no local player: the web page does the job
 	}
-	if name == "mpv" {
-		script, err := installCatchupScript()
-		if err != nil {
-			log.Printf("mpv will be slower to catch up after a stall: %v", err)
-		} else {
-			args = append([]string{"--script=" + script}, args...)
-		}
-	}
 	cmd := exec.Command(path, args...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr // ffplay prints its warnings in the console
+	if name == "mpv" {
+		scripts, err := installMpvScripts()
+		if err != nil {
+			log.Printf("mpv starts without all its scripts (slower to catch up after a stall, or no measures in the debug log): %v", err)
+		}
+		cmd = exec.Command(path, append(scripts, args...)...)
+		cmd.Stdout, cmd.Stderr = s.playerLog, s.playerLog
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Printf("player: %v", err)
@@ -380,7 +413,8 @@ func playerCommand(mode string) (name, path string, args []string) {
 		// script sees it and speeds up. The rest waits in ps5cast, which drops it.
 		"--demuxer-readahead-secs=0.5",
 		"--title=PS5", "--force-window=immediate", "--keep-open=no",
-		"--msg-level=all=warn", "--no-terminal", "-",
+		// Warnings, and the measures of mpv-stats.lua: both go to the debug log.
+		"--msg-level=all=warn,mpv_stats=info", "--no-input-terminal", "-",
 	}
 	ffArgs := []string{
 		"-hide_banner", "-loglevel", "warning",
@@ -400,22 +434,33 @@ func playerCommand(mode string) (name, path string, args []string) {
 	return "", "", nil
 }
 
-//go:embed mpv-catchup.lua
-var catchupScript []byte
+//go:embed mpv-catchup.lua mpv-stats.lua
+var mpvScripts embed.FS
 
-// installCatchupScript writes the script that keeps mpv at the live picture to
-// the user's cache and returns its path: mpv only loads a script from a file.
-func installCatchupScript() (string, error) {
+// mpv only loads a script from a file.
+func installMpvScripts() (options []string, err error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	dir := filepath.Join(cache, "ps5cast")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return nil, err
 	}
-	path := filepath.Join(dir, "mpv-catchup.lua")
-	return path, os.WriteFile(path, catchupScript, 0o600)
+	var failed []error
+	for _, name := range []string{"mpv-catchup.lua", "mpv-stats.lua"} {
+		script, err := mpvScripts.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, script, 0o600); err != nil {
+			failed = append(failed, err) // the other script is still worth loading
+			continue
+		}
+		options = append(options, "--script="+path)
+	}
+	return options, errors.Join(failed...)
 }
 
 // localPlayerName returns "mpv" or "ffplay", or "" when no local player will be used.

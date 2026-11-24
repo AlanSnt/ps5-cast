@@ -59,7 +59,7 @@ At startup, a released binary asks GitHub for the latest stable release and prin
 6. The mpv window (or the page) shows the game. In Discord: Share Your Screen → the "PS5" window, or the browser window.
 
 Web page: click = enable sound (the browser starts muted), **f** fullscreen, **m** mute, **s** latency stats.
-Console: **Enter** restarts the mpv window, **Ctrl+C** quits.
+Console: **Enter** restarts the mpv window, **d** then Enter turns the [debug log](#debug-log) on or off, **Ctrl+C** quits.
 
 ### OBS / VLC
 - OBS: Sources → **Media Source** → uncheck "Local File" → Input: `http://<pc-ip>:8080/live.flv`.
@@ -78,8 +78,36 @@ Console: **Enter** restarts the mpv window, **Ctrl+C** quits.
 | `-record` | — | also record the stream to a `.flv` file; an existing file is never overwritten (`game-2.flv`, `game-3.flv`…) |
 | `-probe443` | `true` | listen on port 443 to detect an RTMPS attempt; pass `-probe443=false` if another program needs that port |
 | `-v` | off | log every DNS query, and why the check for a newer version failed |
+| `-debug` | off | write the [debug log](#debug-log) from the start |
+
+## Debug log
+
+When the picture lags now and then, the debug log records what is needed to find out why. It is one file per session, `ps5cast-debug-<date>-<time>.log`, created in the folder ps5cast was started from; the console prints its full path.
+
+- **From the start**: run `ps5cast -debug`.
+- **While it lags**: type `d` then Enter in the console. During a stream, ps5cast always keeps the last two minutes or so in memory, so the file also holds what happened *before* you turned it on. `d` then Enter again turns it off; turning it on again continues the same file.
+- **To mark a moment**: type a few words then Enter (`lag in the menu`). They are written to the log with the time, which helps when the log runs for a whole evening.
+
+Every line starts with the date, the time to the millisecond, and where the measure comes from:
+
+| Source | Every | What it tells |
+|---|---|---|
+| `log` | — | the console messages, and your notes |
+| `stream` | 1 s | how the PS5's stream arrives: bitrate, pictures and keyframes received, `longest_gap` between two pictures, and `late`, how much later than the fastest picture the latest-coming one arrived. A Wi-Fi that stalls shows here |
+| `reader` | 1 s | for the mpv window and each viewer of the page: the stream it has not read yet (`waiting`), the timestamp of the last picture it was sent (`sent`), what was skipped to bring it back to the live picture (`dropped`) |
+| `mpv` | 1 s | from the mpv window: playback position (`pos`), speed, sound/picture offset (`avsync`), stream waiting in mpv, pictures per second, pictures dropped, GPU decoding in use (`hwdec`), and mpv's own warnings |
+| `pc` | 1 s | CPU (average and busiest core), memory, and the traffic of the network interface the PS5 reaches the PC through (`down`/`up`, lost packets) |
+| `procs` | 5 s | the five programs that use the most CPU, plus mpv and ps5cast, as shares of one core (250% = two cores and a half) |
+| `net` | 5 s | how long the public DNS (`-upstream`) takes to answer: a saturated Internet link shows here |
+| `gpu` | 5 s | GPU load. Windows: per GPU and kind of work (`gpu0_3D`, `gpu0_VideoDecode` for mpv, `gpu0_VideoEncode` for Discord). macOS: overall. Linux: AMD only. Only measured while the log is on |
+
+The file never contains the stream key. It does contain everything the console prints, so the local IP addresses of the PC, of the PS5 and of the devices that watched, and the domains the PS5 looked up (all of them with `-v`); and also the PC's model, the options ps5cast was started with and the names of the busiest programs (never their command line). Read it before sending it to someone. It grows by about 2 MB per hour.
+
+The page in the browser does not report its own playback: with it, the `reader` lines tell whether the browser reads the stream as fast as it arrives.
 
 ## Troubleshooting
+
+- **It lags now and then**: turn on the [debug log](#debug-log) while it lags (`d` then Enter), let it run a minute, and attach the file when reporting the problem.
 
 - **"port 53 is already in use"**: another service holds the port. Stop it, or run ps5cast on another machine.
   - Windows: connection sharing, Docker or Hyper-V.
@@ -105,7 +133,7 @@ go build -trimpath -ldflags="-s -w" .
 
 For another platform, add `GOOS` and `GOARCH` (for example `GOOS=windows GOARCH=amd64`).
 
-Dependencies: `github.com/miekg/dns` and `github.com/yutopp/go-rtmp`, the latter through the fork [`AlanSnt/go-rtmp`](https://github.com/AlanSnt/go-rtmp): the PS5 sends its RTMP `connect` command with transaction ID 0 and only accepts an answer carrying the same ID, which the upstream library does not send. The web player uses [mpegts.js](https://github.com/xqq/mpegts.js) 1.8.2 (Apache-2.0), embedded in the binary.
+Dependencies: `github.com/miekg/dns`, `github.com/shirou/gopsutil` and `github.com/yusufpapurcu/wmi` (the CPU, memory, network, process and Windows GPU measures of the debug log) and `github.com/yutopp/go-rtmp`, the latter through the fork [`AlanSnt/go-rtmp`](https://github.com/AlanSnt/go-rtmp): the PS5 sends its RTMP `connect` command with transaction ID 0 and only accepts an answer carrying the same ID, which the upstream library does not send. The web player uses [mpegts.js](https://github.com/xqq/mpegts.js) 1.8.2 (Apache-2.0), embedded in the binary.
 
 ### Publishing a release
 
