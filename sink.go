@@ -301,7 +301,7 @@ func (s *Sink) openPlayerLocked() {
 	if name == "mpv" {
 		scripts, err := installMpvScripts()
 		if err != nil {
-			log.Printf("mpv starts without all its scripts (slower to catch up after a stall, or no measures in the debug log): %v", err)
+			log.Printf("mpv starts without all its scripts (slower to catch up after a stall, a frozen picture while the window is hidden, or no measures in the debug log): %v", err)
 		}
 		cmd = exec.Command(path, append(scripts, args...)...)
 		cmd.Stdout, cmd.Stderr = s.playerLog, s.playerLog
@@ -413,10 +413,6 @@ func playerCommand(mode string) (name, path string, args []string) {
 		// script sees it and speeds up. The rest waits in ps5cast, which drops it.
 		"--demuxer-readahead-secs=0.5",
 		"--title=PS5", "--force-window=immediate", "--keep-open=no",
-		// Draws the window even when it is hidden or minimized, so Discord keeps
-		// sharing a moving picture. Without it, mpv stops drawing it on macOS
-		// (Vulkan through Metal), Wayland and X11.
-		"--force-render",
 		// Warnings, and the measures of mpv-stats.lua: both go to the debug log.
 		"--msg-level=all=warn,mpv_stats=info", "--no-input-terminal", "-",
 	}

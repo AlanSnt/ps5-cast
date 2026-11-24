@@ -18,7 +18,7 @@ mp.add_periodic_timer(1, function()
         number("vo-delayed-frame-count"), number("mistimed-frame-count"),
         mp.get_property("hwdec-current", "?"), mp.get_property("current-vo", "?"),
         number("width"), number("height"),
-        -- A hidden window may stop being drawn: these say when it was hidden.
+        -- Whether the window was hidden or paused when the stream lagged.
         mp.get_property("pause", "?"), mp.get_property("focused", "?"),
         mp.get_property("window-minimized", "?")))
 end)
