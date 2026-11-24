@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type Sink struct {
 	meta     []byte
 	videoSeq []byte
 	audioSeq []byte
+	stats    streamStats
 
 	player  *output
 	record  *output
@@ -94,6 +96,7 @@ func (s *Sink) BeginStream() bool {
 	}
 	s.active = true
 	s.meta, s.videoSeq, s.audioSeq = nil, nil, nil
+	s.stats = streamStats{}
 	s.openPlayerLocked()
 	if s.recordPath != "" && s.record == nil {
 		if f, err := createRecord(s.recordPath); err != nil {
@@ -167,6 +170,37 @@ func (s *Sink) Reopen() {
 
 func (s *Sink) Close() { s.EndStream() }
 
+// Report describes, for the debug log, the stream since the previous report.
+// It reports false when no stream is in progress.
+func (s *Sink) Report(now time.Time, elapsed time.Duration) (streamReport, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.active {
+		return streamReport{}, false
+	}
+	report := streamReport{arrival: s.stats.report(now, elapsed)}
+	for queue := range s.clients {
+		report.readers = append(report.readers, queue.describe())
+	}
+	slices.Sort(report.readers) // a map has no order: keep the viewers in the same one
+	if s.player != nil {
+		if queue, ok := s.player.dst.(*liveQueue); ok {
+			report.readers = append([]string{queue.describe()}, report.readers...)
+		}
+	}
+	return report, true
+}
+
+// PlayerPID returns the process ID of the local player, 0 when none runs.
+func (s *Sink) PlayerPID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.player == nil || s.player.cmd == nil || s.player.cmd.Process == nil {
+		return 0
+	}
+	return s.player.cmd.Process.Pid
+}
+
 // AddClient attaches an extra reader (HTTP client) to the current stream and
 // returns the queue it reads the stream from. The name is for the console.
 func (s *Sink) AddClient(name string) (*liveQueue, bool) {
@@ -200,6 +234,7 @@ func (s *Sink) Write(kind byte, ts uint32, data []byte) {
 	tag := flvTag{kind, ts, data}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stats.add(tag, time.Now())
 
 	switch {
 	case kind == tagScript:

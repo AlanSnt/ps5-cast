@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"slices"
@@ -32,6 +33,10 @@ const (
 	stopped                       // had it dropped again: paused, frozen or gone
 )
 
+func (s readerState) String() string {
+	return [...]string{"not started", "reading", "behind", "stopped"}[s]
+}
+
 var errSlowClient = errors.New("client too slow")
 
 // liveQueue holds the tags a live reader (the local player or an HTTP viewer)
@@ -49,6 +54,7 @@ type liveQueue struct {
 	tags    []flvTag
 	bytes   int
 	dropped uint32 // milliseconds dropped so far, taken off the later timestamps
+	newest  uint32 // timestamp of the latest tag queued
 
 	state          readerState
 	reportedBehind time.Time
@@ -84,6 +90,7 @@ func (q *liveQueue) writeTag(tag flvTag) error {
 	}
 	q.tags = append(q.tags, tag)
 	q.bytes += len(tag.data)
+	q.newest = tag.ts
 	select {
 	case q.ready <- struct{}{}:
 	default:
@@ -130,6 +137,20 @@ func (q *liveQueue) report(lag uint32) {
 		log.Printf("%s has stopped reading the stream (paused or frozen)", q.reader)
 		q.state = stopped
 	}
+}
+
+// describe tells the debug log what the reader has not read yet (as stream
+// time and as size), the timestamp of the latest tag it was sent, and how much
+// stream was dropped for it so far.
+func (q *liveQueue) describe() string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var waiting uint32
+	if oldest := slices.IndexFunc(q.tags, func(tag flvTag) bool { return !tag.isConfig() }); oldest >= 0 {
+		waiting = msSince(q.tags[oldest].ts, q.newest)
+	}
+	return fmt.Sprintf("%q waiting=%dms/%dKB sent=%dms dropped=%dms state=%s",
+		q.reader, waiting, q.bytes>>10, q.newest, q.dropped, q.state)
 }
 
 // pop returns the oldest waiting tag, if any.
