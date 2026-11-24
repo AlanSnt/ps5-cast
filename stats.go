@@ -5,16 +5,15 @@ import (
 	"time"
 )
 
-// streamStats measures how the PS5's stream arrives between two reports.
 type streamStats struct {
 	// Since the previous report.
 	bytes, pictures, keyframes, sounds int
-	longestGap                         time.Duration // longest wait between two pictures
-	late                               time.Duration // how late the latest-coming picture arrived
+	longestGap                         time.Duration
+	late                               time.Duration
 
 	// Since the start of the stream.
-	began       time.Time     // arrival of the first picture
-	lastPicture time.Time     // arrival of the latest one
+	began       time.Time
+	lastPicture time.Time
 	fastest     time.Duration // shortest trip of a picture: the others are late compared to it
 }
 
@@ -52,8 +51,6 @@ func (s *streamStats) addPicture(tag flvTag, now time.Time) {
 	}
 }
 
-// report describes what arrived during the time elapsed since the previous
-// report, and starts a new count.
 func (s *streamStats) report(now time.Time, elapsed time.Duration) string {
 	gap := s.longestGap
 	if !s.lastPicture.IsZero() {
@@ -62,17 +59,14 @@ func (s *streamStats) report(now time.Time, elapsed time.Duration) string {
 	kbps := float64(s.bytes) * 8 / 1000 / elapsed.Seconds()
 	line := fmt.Sprintf("bitrate=%.0fkbps pictures=%d keyframes=%d sounds=%d longest_gap=%dms late=%dms",
 		kbps, s.pictures, s.keyframes, s.sounds, gap.Milliseconds(), s.late.Milliseconds())
-	// The clocks of the PS5 and of the PC do not tick at the same rate: over
-	// hours, every picture would look later and later than a fastest one seen
-	// long ago. Forgetting it by a thousandth of the time elapsed is far more
-	// than two clocks drift apart, and leaves a real delay visible for minutes.
+	// The clocks of the PS5 and of the PC drift apart: without forgetting the
+	// fastest picture little by little, every picture would look later over hours.
 	forgiven := elapsed / 1000
 	*s = streamStats{began: s.began, lastPicture: s.lastPicture, fastest: s.fastest + forgiven}
 	return line
 }
 
-// streamReport is what the debug log records about a stream in progress.
 type streamReport struct {
-	arrival string   // how the PS5's stream arrived since the previous report
-	readers []string // what the player and each HTTP viewer have not read yet
+	arrival string
+	readers []string
 }

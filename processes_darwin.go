@@ -8,13 +8,10 @@ import (
 	"time"
 )
 
-// processes tells which programs keep the CPU busy.
 type processes struct{}
 
-// measure returns the share of one core each process uses, and the way to get
-// the name of a process. It asks ps: the system calls open to a program only
-// read the processes of its own user, which leaves out WindowServer, the one
-// that draws the windows.
+// measure asks ps: the system calls open to a program only read the processes
+// of its own user, which leaves out WindowServer, the one that draws the windows.
 func (*processes) measure(time.Time) (shares map[int32]float64, nameOf func(pid int32) string) {
 	ps := exec.Command("ps", "-Aco", "pid=,pcpu=,comm=")
 	ps.Env = append(os.Environ(), "LC_ALL=C") // a dot in the figures, whatever the language of the system

@@ -33,9 +33,7 @@ var flvHeader = []byte{'F', 'L', 'V', 1, 0x05, 0, 0, 0, 9, 0, 0, 0, 0}
 type Sink struct {
 	playerMode string
 	recordPath string
-	// playerLog receives what mpv prints: its warnings and the measures of
-	// mpv-stats.lua. Nil discards them.
-	playerLog io.Writer
+	playerLog  io.Writer // what mpv prints; nil discards it
 
 	mu       sync.Mutex
 	active   bool
@@ -173,8 +171,6 @@ func (s *Sink) Reopen() {
 
 func (s *Sink) Close() { s.EndStream() }
 
-// Report describes, for the debug log, the stream since the previous report.
-// It reports false when no stream is in progress.
 func (s *Sink) Report(now time.Time, elapsed time.Duration) (streamReport, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,7 +190,6 @@ func (s *Sink) Report(now time.Time, elapsed time.Duration) (streamReport, bool)
 	return report, true
 }
 
-// PlayerPID returns the process ID of the local player, 0 when none runs.
 func (s *Sink) PlayerPID() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -442,11 +437,7 @@ func playerCommand(mode string) (name, path string, args []string) {
 //go:embed mpv-catchup.lua mpv-stats.lua
 var mpvScripts embed.FS
 
-// installMpvScripts writes the scripts ps5cast gives to mpv to the user's
-// cache, as mpv only loads a script from a file, and returns the options that
-// load them: the one that keeps mpv at the live picture, and the one that
-// prints its measures for the debug log. A script that cannot be written is
-// reported and left out.
+// mpv only loads a script from a file.
 func installMpvScripts() (options []string, err error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {

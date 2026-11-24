@@ -9,18 +9,14 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
-// processes tells which programs keep the CPU busy between two calls.
 type processes struct {
-	spent map[int32]float64 // CPU seconds each process had used at the previous call
-	at    time.Time         // when that call was made
+	spent  map[int32]float64 // CPU seconds per process at the previous reading
+	readAt time.Time
 }
 
-// measure returns the share of one core each process used since the previous
-// call, and the way to get the name of a process. It returns no share when
-// that call is too old to compare with.
 func (p *processes) measure(now time.Time) (shares map[int32]float64, nameOf func(pid int32) string) {
 	running, _ := process.Processes()
-	elapsed := now.Sub(p.at)
+	elapsed := now.Sub(p.readAt)
 	shares = map[int32]float64{}
 	byPID := make(map[int32]*process.Process, len(running))
 	spent := make(map[int32]float64, len(running))
@@ -37,7 +33,7 @@ func (p *processes) measure(now time.Time) (shares map[int32]float64, nameOf fun
 			shares[proc.Pid] = 100 * (spent[proc.Pid] - before) / elapsed.Seconds()
 		}
 	}
-	p.spent, p.at = spent, now
+	p.spent, p.readAt = spent, now
 
 	return shares, func(pid int32) string {
 		name, err := byPID[pid].Name()

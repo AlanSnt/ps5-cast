@@ -74,7 +74,6 @@ func TestDebugLogKeepsOnlyTheLatestLinesWhileOff(t *testing.T) {
 	}
 }
 
-// One file per session: turning the log off and on again continues it.
 func TestDebugLogTurnedOffAndOnAgainContinuesTheSameFile(t *testing.T) {
 	debug := newTestDebugLog(t)
 

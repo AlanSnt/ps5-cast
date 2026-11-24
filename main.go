@@ -155,7 +155,6 @@ func banner(ip net.IP, playerName, localURL, lanURL string) string {
 `, version, ip, view, keys)
 }
 
-// optionsSet lists the options given on the command line, for the debug log.
 func optionsSet() string {
 	var set []string
 	flag.Visit(func(option *flag.Flag) {

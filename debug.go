@@ -14,35 +14,26 @@ import (
 )
 
 const (
-	// recentLines is how many lines are kept while the debug log is off: about
-	// two minutes of a stream shown by mpv.
-	recentLines = 500
-	// measureEvery spaces the measures of the stream and of the machine.
+	recentLines  = 500 // about two minutes of a stream shown by mpv
 	measureEvery = time.Second
-	// probeEvery spaces the measures that cost more to take.
-	probeEvery = 5 * time.Second
+	probeEvery   = 5 * time.Second
 )
 
-// debugLog is the debug log of a session: one file that receives the console
-// messages, the measures taken while the stream plays and what mpv reports.
-//
-// While it is off, the latest lines are kept in memory, so turning it on in
-// the middle of a lag also records what led to it.
+// While the log is off, the latest lines are kept in memory, so turning it on
+// in the middle of a lag also records what led to it.
 type debugLog struct {
 	path  string
-	intro []string // what the session runs on, written every time the log is turned on
+	intro []string
 
 	mu     sync.Mutex
 	file   *os.File // nil while the log is off
-	recent []string // the latest lines while it is off
+	recent []string
 }
 
-// newDebugLog prepares the debug log of a session started at the given time.
-// The file is only created once the log is turned on.
 func newDebugLog(dir string, started time.Time, intro []string) *debugLog {
 	path := filepath.Join(dir, "ps5cast-debug-"+started.Format("20060102-150405")+".log")
 	if absolute, err := filepath.Abs(path); err == nil {
-		path = absolute // the console tells the user where to find the file
+		path = absolute
 	}
 	return &debugLog{path: path, intro: intro}
 }
@@ -53,7 +44,6 @@ func (d *debugLog) Active() bool {
 	return d.file != nil
 }
 
-// Toggle turns the log on or off and tells the console where the file is.
 func (d *debugLog) Toggle() {
 	if d.Active() {
 		d.Stop()
@@ -67,8 +57,6 @@ func (d *debugLog) Toggle() {
 	log.Printf("debug log on → %s", d.path)
 }
 
-// open turns the log on: it continues the file of the session, starting with
-// the lines kept while the log was off.
 func (d *debugLog) open() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -104,8 +92,6 @@ func (d *debugLog) Stop() {
 	}
 }
 
-// Line records one line. The source tells where it comes from: log, stream,
-// reader, pc, mpv…
 func (d *debugLog) Line(source, text string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -116,8 +102,7 @@ func debugLine(source, text string) string {
 	return fmt.Sprintf("%s %-6s %s\n", time.Now().Format("2006-01-02 15:04:05.000"), source, text)
 }
 
-// put writes the line to the file, or keeps it while the log is off. The
-// caller holds d.mu.
+// The caller holds d.mu.
 func (d *debugLog) put(line string) {
 	if d.file == nil {
 		d.recent = append(d.recent, line)
@@ -134,18 +119,15 @@ func (d *debugLog) put(line string) {
 	}
 }
 
-// Writer returns a writer that records every line it receives under the given
-// source.
 func (d *debugLog) Writer(source string) io.Writer {
 	return &lineWriter{record: func(line string) { d.Line(source, line) }}
 }
 
-// lineWriter cuts what it receives into lines, whatever the size of the writes.
 type lineWriter struct {
 	record func(line string)
 
 	mu      sync.Mutex
-	partial []byte // the start of a line whose end has not arrived yet
+	partial []byte
 }
 
 func (w *lineWriter) Write(p []byte) (int, error) {
@@ -164,10 +146,8 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 	}
 }
 
-// measure records every second how the stream arrives, what each reader has
-// not read yet and the load of the machine. It also does while the log is off,
-// as long as a stream is in progress: these are the lines kept for the moment
-// the log is turned on.
+// measure also runs while the log is off, as long as a stream is in progress:
+// these are the lines kept for the moment the log is turned on.
 func (d *debugLog) measure(ctx context.Context, sink *Sink, pc *machine) {
 	tick := time.NewTicker(measureEvery)
 	defer tick.Stop()
@@ -194,10 +174,6 @@ func (d *debugLog) measure(ctx context.Context, sink *Sink, pc *machine) {
 	}
 }
 
-// probe records every five seconds the measures that take longer: the busiest
-// programs and how fast the Internet answers, while a stream is in progress or
-// the log is on. The GPU is only measured while the log is on, as asking the
-// system for it costs more than the rest.
 func (d *debugLog) probe(ctx context.Context, sink *Sink, upstream string) {
 	tick := time.NewTicker(probeEvery)
 	defer tick.Stop()
@@ -213,23 +189,19 @@ func (d *debugLog) probe(ctx context.Context, sink *Sink, upstream string) {
 			}
 			d.note("procs", programs.busiest(now, int32(os.Getpid()), int32(sink.PlayerPID())))
 			d.note("net", internetDelay(upstream))
-			if logging {
+			if logging { // asking the system for the GPU costs more than the rest
 				d.note("gpu", gpuLoad())
 			}
 		}
 	}
 }
 
-// note records a measure, unless the system did not give it.
 func (d *debugLog) note(source, measure string) {
 	if measure != "" {
 		d.Line(source, measure)
 	}
 }
 
-// obey runs what was typed in the console: Enter alone restarts the player,
-// "d" turns the debug log on or off, and any other text is a note that lands
-// in the debug log, to tell when a lag was seen.
 func obey(typed string, sink *Sink, debug *debugLog) {
 	switch typed = strings.TrimSpace(typed); strings.ToLower(typed) {
 	case "":

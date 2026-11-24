@@ -8,8 +8,6 @@ import (
 
 var gpuUtilization = regexp.MustCompile(`"Device Utilization %"=(\d+)`)
 
-// gpuLoad reads the load of each GPU from the I/O registry, where Activity
-// Monitor reads it too. It returns "" when the system does not tell.
 func gpuLoad() string {
 	registry, err := exec.Command("ioreg", "-r", "-d", "1", "-w", "0", "-c", "IOAccelerator").Output()
 	if err != nil {

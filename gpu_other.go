@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-// gpuLoad reads the load of each GPU whose driver publishes it (AMD). It
-// returns "" for the others.
+// Only the AMD drivers publish the load.
 func gpuLoad() string {
 	files, _ := filepath.Glob("/sys/class/drm/card*/device/gpu_busy_percent")
 	var loads []string

@@ -1,9 +1,5 @@
--- Loaded by the mpv window that ps5cast opens.
---
--- Prints once a second how the playback goes. ps5cast keeps these lines for
--- its debug log, where they tell whether the window itself is what lags:
--- pictures dropped because the PC decodes or draws too slowly, sound and
--- picture apart, or stream waiting in mpv.
+-- Loaded by the mpv window that ps5cast opens. ps5cast keeps what this prints
+-- for its debug log, where it tells whether the window itself is what lags.
 
 local function number(property)
     return mp.get_property_number(property, -1) -- -1: mpv does not know yet

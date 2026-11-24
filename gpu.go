@@ -11,11 +11,8 @@ import (
 // "pid_4_luid_0x00000000_0x0000C5D1_phys_0_eng_3_engtype_3D".
 var engineName = regexp.MustCompile(`luid_(0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_phys_\d+_eng_(\d+)_engtype_(.+)$`)
 
-// engineLoad turns the load of the GPU engines of Windows, given per process,
-// into one figure per GPU and kind of work: 3D for drawing the windows,
-// VideoDecode for the player, VideoEncode for what Discord sends. As in the
-// Task Manager, a kind of work is as loaded as its busiest engine. GPUs are
-// numbered in the order of their identifiers; kinds without load are left out.
+// Windows gives the load per process. As in the Task Manager, a kind of work
+// (3D, VideoDecode, VideoEncode…) is as loaded as its busiest engine.
 func engineLoad(engines map[string]uint64) string {
 	type engine struct{ gpu, index, kind string }
 	perEngine := map[engine]uint64{}

@@ -139,9 +139,6 @@ func (q *liveQueue) report(lag uint32) {
 	}
 }
 
-// describe tells the debug log what the reader has not read yet (as stream
-// time and as size), the timestamp of the latest tag it was sent, and how much
-// stream was dropped for it so far.
 func (q *liveQueue) describe() string {
 	q.mu.Lock()
 	defer q.mu.Unlock()
