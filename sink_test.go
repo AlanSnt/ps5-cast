@@ -63,21 +63,26 @@ func TestStalledPlayerDoesNotBlockTheStream(t *testing.T) {
 	}
 }
 
-// streamWithStandInPlayer starts a stream shown by a stand-in mpv and returns
-// the sink with a way to tell which player process is running.
-func streamWithStandInPlayer(t *testing.T) (*Sink, func() *exec.Cmd) {
+// standInMpv makes the given shell commands the only mpv ps5cast can find.
+func standInMpv(t *testing.T, commands string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the stand-in player is a shell script")
 	}
 	bin := t.TempDir()
-	standIn := "#!/bin/sh\nexec /bin/cat >/dev/null\n"
-	if err := os.WriteFile(filepath.Join(bin, "mpv"), []byte(standIn), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "mpv"), []byte("#!/bin/sh\n"+commands+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	t.Setenv("HOME", t.TempDir()) // the catch-up script goes to the user's cache
+	t.Setenv("HOME", t.TempDir()) // the scripts given to mpv go to the user's cache
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+}
+
+// streamWithStandInPlayer starts a stream shown by a stand-in mpv and returns
+// the sink with a way to tell which player process is running.
+func streamWithStandInPlayer(t *testing.T) (*Sink, func() *exec.Cmd) {
+	t.Helper()
+	standInMpv(t, "exec /bin/cat >/dev/null")
 
 	sink := NewSink("mpv", "")
 	if !sink.BeginStream() {
