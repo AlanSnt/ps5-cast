@@ -301,7 +301,7 @@ func (s *Sink) openPlayerLocked() {
 	if name == "mpv" {
 		scripts, err := installMpvScripts()
 		if err != nil {
-			log.Printf("mpv starts without all its scripts (slower to catch up after a stall, or no measures in the debug log): %v", err)
+			log.Printf("mpv starts without all its scripts (slower to catch up after a stall, a frozen picture while the window is hidden, or no measures in the debug log): %v", err)
 		}
 		cmd = exec.Command(path, append(scripts, args...)...)
 		cmd.Stdout, cmd.Stderr = s.playerLog, s.playerLog
