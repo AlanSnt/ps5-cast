@@ -32,4 +32,4 @@ require (
 // and ignores the answer of the upstream library, which always carries 1.
 // It also skips empty messages of any type instead of panicking, which cut the
 // stream, and reads the extended timestamp that every chunk repeats past 4h39m.
-replace github.com/yutopp/go-rtmp => github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.4
+replace github.com/yutopp/go-rtmp => github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.5
