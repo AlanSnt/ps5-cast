@@ -187,6 +187,33 @@ func TestFailedRecordingIsReportedAndClosed(t *testing.T) {
 	}
 }
 
+func TestEmptyPayloadsAreNotWritten(t *testing.T) {
+	sink := liveSink(t)
+	file, err := os.Create(filepath.Join(t.TempDir(), "game.flv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink.mu.Lock()
+	sink.record = newRecordOutput(file)
+	sink.mu.Unlock()
+	sink.Write(tagVideo, 0, keyframe)
+	before, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sink.Write(tagAudio, 10, nil)
+	sink.Write(tagVideo, 20, []byte{})
+
+	after, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Size() != before.Size() {
+		t.Errorf("recording grew from %d to %d bytes, want empty payloads dropped", before.Size(), after.Size())
+	}
+}
+
 func TestRecordingToADirectoryIsAnError(t *testing.T) {
 	dir := t.TempDir()
 
