@@ -1,5 +1,5 @@
-github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.3 h1:qf/ZxgRK8Me31CroEqfTGRS61g72YGaInSIFWlRMLrQ=
-github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.3/go.mod h1:KSwrC9Xj5Kf18EUlk1g7CScecjXfIqc0J5q+S0u6Irc=
+github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.4 h1:/pXG9nKftxJd0PJ+MUmdtfLxUAyR6RIX6dtzaFgXTjQ=
+github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.4/go.mod h1:KSwrC9Xj5Kf18EUlk1g7CScecjXfIqc0J5q+S0u6Irc=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/ebitengine/purego v0.11.2 h1:WWiTx8rD8zYdOwSj8O/NiNbsOvSAgJMTlyV1XlbUSeU=
