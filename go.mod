@@ -31,4 +31,4 @@ require (
 // The fork answers "connect" with the client's transaction ID: the PS5 sends 0
 // and ignores the answer of the upstream library, which always carries 1.
 // It also reads an empty message instead of panicking, which cut the stream.
-replace github.com/yutopp/go-rtmp => github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.2
+replace github.com/yutopp/go-rtmp => github.com/AlanSnt/go-rtmp v0.0.8-ps5cast.3
